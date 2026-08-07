@@ -1,4 +1,4 @@
-# Project Name (To be decided)
+# The Interview Agent
 
 ## Team
 KY² Innovators
