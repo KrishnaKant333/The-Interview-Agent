@@ -1,11 +1,32 @@
-import { useState } from 'react'
+import { useState } from "react";
+import { interviewGateway } from "./interviewGateway";
+import type { Candidate, Feedback, InterviewTurn } from "./types";
+import { candidates } from "./Given_Data/candidates";
 
-function App() {
-  return (
-    <div>
-      Hello Interview Agent
-    </div>
-  );
+type Page = "landing" | "candidates" | "setup" | "interview" | "results";
+const scoreWidth = (value: number) => ({ width: `${value}%` });
+
+export default function App() {
+  const [page, setPage] = useState<Page>("landing");
+  const [candidate, setCandidate] = useState<Candidate | null>(null);
+  const [turn, setTurn] = useState<InterviewTurn | null>(null);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [answer, setAnswer] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const begin = async () => { if (!candidate) return; setLoading(true); const firstTurn = await interviewGateway.start(candidate); setTurn(firstTurn); setLoading(false); setPage("interview"); };
+  const submit = async () => { if (!answer.trim() || !turn) return; setLoading(true); const next = await interviewGateway.submit(answer); setAnswer(""); setTurn(next); if (next.completed) { const result = await interviewGateway.feedback(); setFeedback(result); setPage("results"); } setLoading(false); };
+  const restart = () => { setCandidate(null); setTurn(null); setFeedback(null); setAnswer(""); setPage("landing"); };
+
+  return <main>
+    <header className="nav"><button className="brand" onClick={restart}><span>KY² Interview Agent</span></button><span className="nav-note">Adaptive technical interviews</span></header>
+    {page === "landing" && <section className="hero"><p className="eyebrow">PERSONALIZED AI INTERVIEWER</p><h1>Your learning journey.<br /><em>Your interview.</em></h1><p className="lead">A technical interview that adapts to what you have learned, where you struggled, and how you answer.</p><button className="primary" onClick={() => setPage("candidates")}>Start interview <b>→</b></button><div className="feature-grid"><Feature title="Personalized" text="Built around curriculum progress" /><Feature title="Adaptive" text="Follow-ups shift with each answer" /><Feature title="Actionable" text="Feedback points to what to learn next" /></div></section>}
+    {page === "candidates" && <section className="container"><p className="eyebrow">STEP 1 OF 2</p><h2>Choose a candidate</h2><p className="muted">Use the supplied learner data to shape the interview.</p><div className="candidate-grid">{candidates.map((item) => <button className="candidate" key={item.id} onClick={() => { setCandidate(item); setPage("setup"); }}><div className="avatar">{item.name[0]}</div><h3>{item.name}</h3><p>{item.role} · {item.yearsExperience} years experience</p><hr /><small>STRENGTH</small><strong>{item.strength}</strong><small>FOCUS AREA</small><strong>{item.focus}</strong><span>Prepare interview →</span></button>)}</div></section>}
+    {page === "setup" && candidate && <section className="container setup"><p className="eyebrow">INTERVIEW READY</p><h2>Ready, {candidate.name.split(" ")[0]}?</h2><p className="lead">We used this candidate’s progress to prepare a focused interview.</p><div className="setup-card"><div><small>CURRICULUM SIGNALS</small><p>{candidate.completedCount} missions completed · {candidate.firstTryCount} first-try completions</p><p>{candidate.commitDays} active commit days</p><p>Focus area: {candidate.focus}</p></div><div><small>INTERVIEW PLAN</small><p>8 questions · 4+ curriculum days</p><p>Adaptive follow-ups · final feedback</p></div></div><button className="primary" onClick={begin} disabled={loading}>{loading ? "Preparing personalized interview…" : "Begin interview →"}</button></section>}
+    {page === "interview" && turn && <section className="interview-shell"><div className="interview-main"><div className="progress-label"><span>AI INTERVIEWER</span><span>Question {turn.current} / {turn.total}</span></div><div className="question"><div>{turn.evaluatorNote && <p className="note">{turn.evaluatorNote}</p>}<h2>{turn.question}</h2></div></div><div className="answer"><label htmlFor="answer">Your answer</label><textarea id="answer" value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="Explain your thinking clearly. Examples and trade-offs make your answer stronger." disabled={loading} /><button className="primary" onClick={submit} disabled={loading || !answer.trim()}>{loading ? "Evaluating your answer…" : "Submit answer →"}</button></div></div><aside className="sidebar"><small>INTERVIEW PROGRESS</small><div className="dots">{Array.from({ length: turn.total }, (_, index) => <i className={index < turn.current ? "done" : ""} key={index} />)}</div><Info label="CURRENT TOPIC" value={turn.topic} /><Info label="DIFFICULTY" value={turn.difficulty} /><div><small>PERSONALIZATION</small><p>Based on completed curriculum days and focus areas.</p></div></aside></section>}
+    {page === "results" && feedback && <section className="container results"><p className="eyebrow">INTERVIEW COMPLETE</p><h2>Great work, {candidate?.name.split(" ")[0]}.</h2><p className="lead">{feedback.summary}</p><div className="overall"><b>{feedback.overall}</b><span>/ 100 overall performance</span></div><div className="result-grid"><div className="panel"><h3>Skill breakdown</h3>{feedback.skills.map((skill) => <div className="skill" key={skill.label}><span>{skill.label}</span><b>{skill.score}%</b><div className="bar"><i style={scoreWidth(skill.score)} /></div></div>)}</div><div className="panel"><h3>Strengths</h3>{feedback.strengths.map((item) => <p className="positive" key={item}>✓ {item}</p>)}<h3>Improve next</h3>{feedback.improvements.map((item) => <p className="improve" key={item}>→ {item}</p>)}</div></div><div className="panel recommendations"><small>RECOMMENDED LEARNING</small>{feedback.recommendations.map((item) => <p key={item}>{item}</p>)}</div><button className="primary" onClick={restart}>Start another interview →</button></section>}
+  </main>;
 }
-
-export default App
+function Feature({ title, text }: { title: string; text: string }) { return <div className="feature"><b>{title}</b><span>{text}</span></div>; }
+function Info({ label, value }: { label: string; value: string }) { return <div><small>{label}</small><p>{value}</p></div>;
+}

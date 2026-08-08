@@ -1873,4 +1873,269 @@ LLM
 **That's the point where I'd help you build the actual AI interviewer prompts/state machine.**
 
 And one thing I'd strongly recommend: **don't let Claude Code decide your entire architecture.** Let it write the components, but keep the interview state, API contract, and adaptive logic under your control. That's the part the judges are actually evaluating.
- 
+
+
+## Prompt No. 5
+
+**AI Tool: Codex**
+
+**Author: Yash Palkar** 
+
+### Prompt
+Continuing from [Hackathon Task Distribution](chatgpt-conversation://6a7621a3-25e0-83ee-a802-e95a73bc09c6): Help the user execute a 48-hour AI-first hackathon build for the AI interviewer project. They own the frontend. Provide a practical AI-assisted development workflow, frontend architecture/folder structure, prompts for coding agents, division of work across 3 members, and a sequence for building with mock data then integrating the backend. Base requirements on the uploaded project context where available; do not invent unsupported API details.
+
+### Outcome
+Build a focused, demo-ready AI interviewer: personalized from candidate progress and curriculum, at least 8 questions across 4+ curriculum days, adaptive follow-ups, conversational memory, and final feedback. Those are the requirements visible in the supplied project context; treat the technical-spec endpoint and payload as the source of truth during integration.
+
+## 48-hour build sequence
+
+| Time | Frontend — you | Member 2 | Member 3 |
+|---|---|---|---|
+| 0–3h | Set up UI shell, routes, mock-data layer | Set up server, load supplied JSON, expose spec-required endpoint | Extract personalization rules from candidate + curriculum data |
+| 3–10h | Landing, candidate picker, setup screen | Session/state foundation, validate endpoint contract | Design structured prompt/output for plan, question, evaluation |
+| 10–18h | Interview room: question, answer, progress, thinking state | Connect question lifecycle and session memory | Implement adaptive follow-up and scoring |
+| 18–28h | Results dashboard and recommendation UI | Return final feedback through contract | Generate feedback, strengths, gaps, next curriculum recommendations |
+| 28–36h | Replace mocks with real adapter; responsive/error states | Deploy backend and fix integration | Test 3 candidate journeys; tune prompts |
+| 36–44h | UI polish and end-to-end demo path | API robustness, CORS/config | Demo script, evaluation examples |
+| 44–48h | No new features—test and present | Final integration support | Final demo rehearsal |
+
+## Ownership
+
+**You — Frontend + demo experience**
+
+- Candidate selection based on the supplied `candidates.json`
+- Personalization/setup screen showing relevant learning signals
+- Interview room with answer input, question count, topic, adaptive-difficulty display, and “evaluating” state
+- Final feedback dashboard
+- Mock data first, then one API adapter for integration
+- Responsive layout, loading/error/empty states, deployment of frontend
+
+**Member 2 — Backend + contract**
+
+- Implement exactly the required API endpoint/schema from `technical specs.md`
+- Parse candidates and curriculum data
+- Session ID and interview-state management
+- Connect AI-engine outputs to the endpoint
+- Validate requests/responses and deploy backend
+- Publish an `API.md` containing real example requests/responses early
+
+**Member 3 — AI behavior + quality**
+
+- Map completed, skipped, difficult, and mastered curriculum areas into an interview plan
+- Generate 8+ questions spanning 4+ curriculum days
+- Evaluate answers and determine next difficulty/follow-up
+- Maintain concise session memory
+- Produce final structured feedback: score dimensions, strengths, improvements, recommended next learning
+- Test consistent outputs for several candidate profiles
+
+## Frontend architecture
+
+```text
+ai-interviewer/
+├── frontend/
+│   ├── src/
+│   │   ├── app/
+│   │   │   ├── routes.tsx
+│   │   │   └── AppProviders.tsx
+│   │   ├── pages/
+│   │   │   ├── LandingPage.tsx
+│   │   │   ├── CandidatesPage.tsx
+│   │   │   ├── InterviewSetupPage.tsx
+│   │   │   ├── InterviewPage.tsx
+│   │   │   └── ResultsPage.tsx
+│   │   ├── components/
+│   │   │   ├── ui/
+│   │   │   ├── candidate/
+│   │   │   │   ├── CandidateCard.tsx
+│   │   │   │   └── LearningSummary.tsx
+│   │   │   ├── interview/
+│   │   │   │   ├── InterviewHeader.tsx
+│   │   │   │   ├── QuestionCard.tsx
+│   │   │   │   ├── AnswerInput.tsx
+│   │   │   │   ├── ThinkingIndicator.tsx
+│   │   │   │   ├── ProgressTracker.tsx
+│   │   │   │   └── InterviewSidebar.tsx
+│   │   │   └── feedback/
+│   │   │       ├── ScoreOverview.tsx
+│   │   │       ├── SkillBreakdown.tsx
+│   │   │       ├── StrengthsList.tsx
+│   │   │       └── LearningRecommendations.tsx
+│   │   ├── features/interview/
+│   │   │   ├── useInterview.ts
+│   │   │   ├── interview.types.ts
+│   │   │   └── interview.mapper.ts
+│   │   ├── services/
+│   │   │   ├── interviewApi.ts
+│   │   │   └── interviewGateway.ts
+│   │   ├── mocks/
+│   │   │   ├── candidates.ts
+│   │   │   └── interviewResponses.ts
+│   │   ├── lib/
+│   │   └── styles/
+│   └── .env.example
+├── backend/
+├── shared/
+│   └── api-contract.md
+├── docs/
+│   ├── demo-script.md
+│   └── architecture.md
+└── README.md
+```
+
+Use React + TypeScript + Vite + Tailwind. Add a component library only if it speeds you up. Avoid auth, databases in the frontend, complex global state, and elaborate animations.
+
+## Mock-first integration approach
+
+Do not let the UI depend directly on backend shapes.
+
+1. Create frontend display types based on what the UI needs: current question, progress, topic, difficulty, completion status, feedback.
+2. Put all fake interview scenarios in `mocks/interviewResponses.ts`.
+3. Make `interviewGateway.ts` the only import used by pages/hooks.
+4. Start in mock mode.
+5. When Member 2 shares the real contract, update only:
+   - `interviewApi.ts`
+   - `interview.mapper.ts`
+   - environment configuration  
+   
+Do not hardcode a guessed endpoint, action name, or payload. The prior conversation proposed examples, but your uploaded technical spec must override them.
+
+## Definition of a convincing frontend demo
+
+Your best flow is:
+
+```text
+Choose candidate
+→ “Analyzing learning journey”
+→ show relevant completed / skipped / difficult areas
+→ personalized interview begins
+→ answer submitted
+→ “Evaluating answer…”
+→ follow-up visibly becomes deeper or simpler
+→ final feedback connects weaknesses to curriculum recommendations
+```
+
+The key is showing that the product used the provided learner data—not merely displaying a chat interface.
+
+## Prompts for coding agents
+
+Use one task per prompt. Have the agent inspect existing files before editing, and always ask it to run the project checks afterward.
+
+**Frontend foundation**
+
+```text
+You are working on a React + TypeScript + Vite frontend for an AI interviewer hackathon project.
+
+Inspect the existing project first. Implement only the application shell: routes for Landing, Candidates, Setup, Interview, and Results; a shared layout; and a clean dark, accessible visual system. Do not add backend calls or invent API details. Keep components small and use mock data only where required. Run the type check/build and report changed files.
+```
+
+**Interview room**
+
+```text
+Implement the Interview page only. It must show the current AI question, a large answer textarea, submit/loading state, interview progress, current topic, and a difficulty indicator. Obtain all data through an existing interview gateway abstraction; if it does not exist, create a mock-compatible interface without assuming backend endpoints or payload fields. Keep the page responsive and accessible. Run checks afterward.
+```
+
+**Mock scenario**
+
+```text
+Create realistic mock interview scenarios for the existing frontend types: one strong candidate path, one struggling candidate path, and one final-feedback result. Demonstrate personalization, at least 8 questions, an adaptive follow-up, memory of a previous answer, and curriculum-linked recommendations. Do not alter the technical API contract.
+```
+
+**Integration**
+
+```text
+Read shared/api-contract.md and the current frontend interview types. Replace the mock implementation behind the interview gateway with a real HTTP adapter that follows the documented contract exactly. Keep UI components unchanged as far as possible. Map API responses into frontend display types, handle loading and errors, and document required environment variables in .env.example.
+```
+
+**AI-engine task**
+
+```text
+Using only the provided candidates and curriculum data plus the documented API contract, design structured AI outputs for: interview plan, next question, answer evaluation, adaptive difficulty decision, and final feedback. Ensure the flow covers at least 8 questions across 4+ curriculum days, includes follow-ups and session memory, and returns machine-readable fields that the backend can validate. Include three test cases.
+```
+
+## Collaboration rules that prevent hackathon pain
+
+- Agree on the API contract by hour 3; publish it in `shared/api-contract.md`.
+- You work from mocks until the API passes one known test case.
+- Each member owns separate folders; avoid simultaneous edits to shared files.
+- Merge small, working commits frequently.
+- Test one “hero candidate” path end to end before adding polish.
+- Reserve the last six hours for a reliable demo, deployment, README, and presentation—not new features.
+
+
+## Prompt No. 6
+
+**AI Tool: Codex**
+
+**Author: Yash Palkar** 
+
+### Prompt
+so give me the code for this project and tell give me instruction step by step
+
+### Outcome
+I created the runnable frontend MVP here:
+
+[Open the project folder](</C:\Users\Yash Palkar\Documents\Codex\2026-08-08\referenced-chatgpt-conversation-this-is-an\outputs\ai-interviewer-frontend>)
+
+It includes landing, candidate selection, personalized setup, adaptive mock interview, loading state, progress tracker, and final feedback dashboard.
+
+## Run it
+
+1. Install Node.js 20+ if needed.
+2. Open a terminal in the project folder.
+3. Run:
+
+```bash
+npm install
+npm run dev
+```
+
+4. Open the local URL shown in the terminal.
+
+## What to do next
+
+1. Replace the three mock candidates in `src/App.tsx` with data mapped from your supplied `candidates.json`.
+2. Ask your backend teammate for the exact endpoint request/response from `technical specs.md`.
+3. Update only `src/interviewGateway.ts`:
+   - Replace `MockInterviewGateway`
+   - Keep the `InterviewGateway` interface
+   - Map real responses into `InterviewTurn` and `Feedback`
+4. Test this demo journey:
+   - Select a candidate
+   - Begin interview
+   - Submit 8 answers
+   - Confirm final feedback appears
+5. Polish only after the full flow works on mobile and desktop.
+
+The important integration file is [interviewGateway.ts](</C:\Users\Yash Palkar\Documents\Codex\2026-08-08\referenced-chatgpt-conversation-this-is-an\outputs\ai-interviewer-frontend\src\interviewGateway.ts>). This prevents backend changes from forcing a UI rewrite.
+
+
+## Prompt No. 7
+
+**AI Tool: Codex**
+
+**Author: Yash Palkar** 
+
+### Prompt
+replace the dummy data from these files
+
+### Outcome
+Done—the dummy profiles are now replaced by all 20 real candidates from your supplied JSON files.
+
+The UI now uses real:
+
+- Name, role, experience, and education
+- Completed missions and active commit days
+- First-try completions
+- Focus areas derived from skipped or high-attempt missions
+- Curriculum titles to describe candidate strengths and review areas
+
+I also verified the project builds successfully.
+
+Key updated files:
+
+- [App.tsx](</C:\Users\Yash Palkar\Documents\Codex\2026-08-08\referenced-chatgpt-conversation-this-is-an\outputs\ai-interviewer-frontend\src\App.tsx>)
+- [candidate data mapper](</C:\Users\Yash Palkar\Documents\Codex\2026-08-08\referenced-chatgpt-conversation-this-is-an\outputs\ai-interviewer-frontend\src\data\candidates.ts>)
+
+Restart or refresh your development server, then open **Choose a candidate** to see the real profiles.
+
+
