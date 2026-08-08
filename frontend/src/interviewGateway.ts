@@ -98,7 +98,14 @@ class ApiInterviewGateway implements InterviewGateway {
 }
 
 function createGateway(): InterviewGateway {
-  const useMock = import.meta.env.VITE_USE_MOCK !== "false";
+  const mockEnv = import.meta.env.VITE_USE_MOCK;
+  const useMock = mockEnv !== "false";
+  const gatewayName = useMock ? "MockInterviewGateway" : "ApiInterviewGateway";
+
+  // TEMP DEBUG — remove after verifying live API mode
+  console.log("[interviewGateway] VITE_USE_MOCK:", mockEnv);
+  console.log("[interviewGateway] selected gateway:", gatewayName);
+
   if (useMock) {
     return new MockInterviewGateway();
   }
