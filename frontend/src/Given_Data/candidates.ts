@@ -1,21 +1,23 @@
 import rawCandidates from "./candidates.json";
 import curriculum from "./curriculum.json";
-import type { Candidate } from "../types";
+import type { CandidateViewModel, RawCandidate } from "../types";
 
-type Mission = { day: number; title?: string; passed?: boolean; skipped?: boolean; attempts?: number };
-type SourceCandidate = {
-  member: { id: string; name: string; jobRole: string; yearsExperience: number; education: string };
-  missions: Mission[];
-  signals: { commitDays: number; missionsCompleted: number; missionsFirstTry: number };
+type Mission = {
+  day: number;
+  title?: string;
+  passed?: boolean;
+  skipped?: boolean;
+  attempts?: number;
 };
 
 const curriculumTitleByDay = new Map(
   curriculum.days.map((day) => [day.day, day.title]),
 );
 
-const titleFor = (mission: Mission) => mission.title ?? curriculumTitleByDay.get(mission.day) ?? `Curriculum day ${mission.day}`;
+const titleFor = (mission: Mission) =>
+  mission.title ?? curriculumTitleByDay.get(mission.day) ?? `Curriculum day ${mission.day}`;
 
-function toCandidate(source: SourceCandidate): Candidate {
+function toViewModel(source: RawCandidate): CandidateViewModel {
   const completed = source.missions.filter((mission) => mission.passed);
   const skipped = source.missions.find((mission) => mission.skipped);
   const difficult = [...source.missions]
@@ -34,8 +36,34 @@ function toCandidate(source: SourceCandidate): Candidate {
     firstTryCount: source.signals.missionsFirstTry,
     commitDays: source.signals.commitDays,
     strength: strongest ? `Strong in ${titleFor(strongest)}` : "Learning foundations",
-    focus: skipped ? `Review ${titleFor(skipped)}` : difficult ? `Deepen ${titleFor(difficult)}` : "Explore advanced system trade-offs",
+    focus: skipped
+      ? `Review ${titleFor(skipped)}`
+      : difficult
+        ? `Deepen ${titleFor(difficult)}`
+        : "Explore advanced system trade-offs",
   };
 }
 
-export const candidates: Candidate[] = (rawCandidates.candidates as SourceCandidate[]).map(toCandidate);
+export const rawCandidateList: RawCandidate[] = rawCandidates.candidates as RawCandidate[];
+
+export const candidates: CandidateViewModel[] = rawCandidateList.map(toViewModel);
+
+export function getRawCandidateById(id: string): RawCandidate | undefined {
+  return rawCandidateList.find((candidate) => candidate.member.id === id);
+}
+
+export function getCandidateViewModelById(id: string): CandidateViewModel | undefined {
+  return candidates.find((candidate) => candidate.id === id);
+}
+
+export function getCandidatePair(id: string): {
+  viewModel: CandidateViewModel;
+  raw: RawCandidate;
+} | null {
+  const raw = getRawCandidateById(id);
+  const viewModel = getCandidateViewModelById(id);
+  if (!raw || !viewModel) {
+    return null;
+  }
+  return { viewModel, raw };
+}

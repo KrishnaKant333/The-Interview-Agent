@@ -388,6 +388,63 @@ h2 {
     color: #dce1ee
 }
 
+.status-message {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #b7bdcb;
+    font-size: 15px
+}
+
+.status-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #374056;
+    border-top-color: #9eb1ff;
+    border-radius: 50%;
+    animation: spin .8s linear infinite
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg)
+    }
+}
+
+.error-banner {
+    margin: 16px 26px 0;
+    padding: 14px 16px;
+    border-radius: 10px;
+    border: 1px solid #5c3a3a;
+    background: rgba(92, 58, 58, .25);
+    color: #f5d0d0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px
+}
+
+.error-banner p {
+    margin: 0;
+    font-size: 14px
+}
+
+.secondary {
+    border: 1px solid #374056;
+    border-radius: 8px;
+    background: transparent;
+    color: #dce1ee;
+    font-weight: 600;
+    padding: 8px 14px;
+    white-space: nowrap
+}
+
+.demo-note {
+    color: #8b93a8;
+    font-size: 12px;
+    margin: -12px 0 16px
+}
+
 @media(max-width:720px) {
 
     .feature-grid,
