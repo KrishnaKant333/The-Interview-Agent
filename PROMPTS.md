@@ -6970,3 +6970,3493 @@ Structured question/evaluation
 
 That separation will make the second phase considerably easier.
 
+## Prompt No.15
+
+**AI Tool: Cursor**
+
+**Author: Yash Palkar** 
+
+### Prompt
+You are the backend engineer for our 48-hour hackathon project.
+
+We are building an AI-powered adaptive technical interviewer.
+
+IMPORTANT:
+The frontend is already implemented.
+
+Your job is to build ONLY the backend.
+
+DO NOT modify the frontend.
+DO NOT implement any real LLM/AI calls yet.
+DO NOT add authentication.
+DO NOT add a database.
+DO NOT add unnecessary dependencies.
+
+The immediate goal is to prove this flow end-to-end:
+
+React frontend
+    ↓
+POST /api/interview
+    ↓
+FastAPI
+    ↓
+Session state
+    ↓
+Deterministic mock interviewer
+    ↓
+JSON response
+    ↓
+React frontend
+
+
+==================================================
+PHASE 0 — INSPECT THE PROVIDED FILES
+==================================================
+
+Before writing code:
+
+1. Inspect the supplied:
+   - candidates.json
+   - curriculum.json
+   - technical specification / project requirements
+
+2. Determine their ACTUAL schemas and field names.
+
+3. Do NOT invent candidate fields.
+4. Do NOT transform the candidate into the frontend CandidateViewModel.
+5. The API must accept the RAW candidate.json object supplied by the frontend.
+
+6. Determine the actual curriculum structure from curriculum.json.
+
+If any required structure is ambiguous, document the assumption instead of silently inventing fields.
+
+==================================================
+TECH STACK
+==================================================
+
+Use:
+
+- Python
+- FastAPI
+- Pydantic
+- Uvicorn
+- pytest
+- httpx if required for FastAPI TestClient
+
+Keep dependencies minimal.
+
+Use Python type hints throughout.
+
+Do not introduce:
+- LangChain
+- LangGraph
+- OpenAI SDK
+- Gemini SDK
+- Anthropic SDK
+- vector databases
+- PostgreSQL
+- Redis
+- SQLAlchemy
+- Docker unless absolutely necessary
+
+We will add AI integration later.
+
+==================================================
+PROJECT STRUCTURE
+==================================================
+
+Create:
+
+backend/
+│
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   │
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── interview.py
+│   │
+│   ├── schemas/
+│   │   ├── __init__.py
+│   │   └── interview.py
+│   │
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── session.py
+│   │   ├── candidate.py
+│   │   └── curriculum.py
+│   │
+│   ├── interview/
+│   │   ├── __init__.py
+│   │   └── engine.py
+│   │
+│   └── data/
+│       ├── candidates.json
+│       └── curriculum.json
+│
+├── tests/
+│   ├── __init__.py
+│   └── test_interview.py
+│
+├── requirements.txt
+├── .env.example
+└── README.md
+
+
+==================================================
+API CONTRACT
+==================================================
+
+Expose exactly:
+
+POST /api/interview
+
+No authentication.
+
+The endpoint must maintain interview state using sessionId.
+
+------------------------------------------
+INITIAL REQUEST
+------------------------------------------
+
+Request:
+
+{
+  "sessionId": "abc-123",
+  "candidate": {
+    "...raw candidate.json object..."
+  }
+}
+
+Response:
+
+{
+  "reply": "Welcome. Let's begin your interview.",
+  "done": false
+}
+
+
+------------------------------------------
+SUBSEQUENT REQUEST
+------------------------------------------
+
+Request:
+
+{
+  "sessionId": "abc-123",
+  "message": "Candidate's latest answer"
+}
+
+Response:
+
+{
+  "reply": "...",
+  "done": false
+}
+
+
+------------------------------------------
+FINAL RESPONSE
+------------------------------------------
+
+Response:
+
+{
+  "reply": "Interview completed.",
+  "done": true,
+  "feedback": {
+    "summary": "...",
+    "strengths": [],
+    "gaps": [],
+    "next": []
+  }
+}
+
+
+IMPORTANT:
+
+Keep the public API contract exactly as specified.
+
+Do not add unnecessary response fields.
+
+Do not change:
+- sessionId
+- candidate
+- message
+- reply
+- done
+- feedback
+- summary
+- strengths
+- gaps
+- next
+
+
+==================================================
+REQUEST VALIDATION
+==================================================
+
+The endpoint accepts two valid request shapes.
+
+START:
+
+{
+  "sessionId": "...",
+  "candidate": {...}
+}
+
+CONTINUE:
+
+{
+  "sessionId": "...",
+  "message": "..."
+}
+
+A request should not need both candidate and message.
+
+Validate the request using Pydantic.
+
+Handle sensible errors for:
+
+1. Missing sessionId
+2. Empty sessionId
+3. Invalid candidate
+4. Missing message on continuation
+5. Empty message
+6. Unknown sessionId
+7. Malformed JSON
+
+Return appropriate HTTP status codes and clean JSON error responses.
+
+Do not expose Python stack traces to the client.
+
+
+==================================================
+SESSION MANAGEMENT
+==================================================
+
+Implement an in-memory session store.
+
+DO NOT use a database.
+
+Each session must contain at minimum:
+
+- sessionId
+- candidate
+- conversation history
+- question count
+- interview state
+
+A reasonable internal representation is:
+
+InterviewSession
+    ├── session_id
+    ├── candidate
+    ├── conversation
+    ├── question_count
+    └── state
+
+Possible states:
+
+- active
+- completed
+
+Use sessionId to retrieve the same session for every request.
+
+The session store should be isolated inside:
+
+services/session.py
+
+Do not put session logic directly inside the FastAPI route.
+
+
+==================================================
+CANDIDATE SERVICE
+==================================================
+
+Create:
+
+services/candidate.py
+
+Responsibilities:
+
+- validate the raw candidate object
+- expose useful candidate information to the interview engine
+- keep the raw candidate available in session state
+
+IMPORTANT:
+
+The frontend sends the RAW candidate.json structure.
+
+Do NOT require the frontend's CandidateViewModel.
+
+Do NOT make the frontend transform the candidate.
+
+If candidate.json contains nested structures, preserve them.
+
+Use the actual candidate schema found in the supplied file.
+
+
+==================================================
+CURRICULUM SERVICE
+==================================================
+
+Create:
+
+services/curriculum.py
+
+Responsibilities:
+
+- load curriculum.json
+- validate/load it safely
+- expose curriculum information to the interview engine
+- provide access to curriculum days/topics/modules
+
+Do not implement vector search, embeddings, RAG, or sophisticated retrieval.
+
+For now, simple deterministic access is enough.
+
+
+==================================================
+MOCK INTERVIEW ENGINE
+==================================================
+
+Create:
+
+interview/engine.py
+
+This is a deterministic replacement for the future AI interviewer.
+
+DO NOT call any LLM.
+
+The engine must:
+
+1. Start an interview.
+2. Generate the first question.
+3. Accept candidate answers.
+4. Store every answer in conversation history.
+5. Generate the next question.
+6. Continue for AT LEAST 8 questions.
+7. Cover AT LEAST 4 curriculum days.
+8. Finish with done=true.
+9. Return final feedback.
+
+The interview must be deterministic so that tests are reliable.
+
+Do not make every candidate receive exactly the same interview if
+simple candidate-specific selection can be derived from the supplied
+candidate data.
+
+For example, if the supplied candidate structure provides useful
+learning signals such as completed days, attempts, skipped areas,
+or similar information, use those signals for simple deterministic
+question selection.
+
+Do NOT build sophisticated AI reasoning yet.
+
+The goal is only to create a realistic mock engine whose interface
+can later be replaced by an LLM-based implementation.
+
+
+==================================================
+CONVERSATION HISTORY
+==================================================
+
+Store conversation history inside the session.
+
+Represent messages clearly, for example:
+
+{
+  "role": "interviewer",
+  "content": "..."
+}
+
+{
+  "role": "candidate",
+  "content": "..."
+}
+
+The engine must receive the previous conversation when deciding
+which mock question comes next.
+
+The history must remain associated with the sessionId.
+
+
+==================================================
+INTERVIEW FLOW
+==================================================
+
+Implement this behavior:
+
+START:
+
+POST /api/interview
+
+{
+  "sessionId": "abc-123",
+  "candidate": {...}
+}
+
+↓
+
+Create session
+
+↓
+
+Generate question 1
+
+↓
+
+Return:
+
+{
+  "reply": "...",
+  "done": false
+}
+
+
+CONTINUE:
+
+POST /api/interview
+
+{
+  "sessionId": "abc-123",
+  "message": "candidate answer"
+}
+
+↓
+
+Retrieve session
+
+↓
+
+Store candidate answer
+
+↓
+
+Increment question count
+
+↓
+
+Generate next question
+
+↓
+
+Return:
+
+{
+  "reply": "...",
+  "done": false
+}
+
+
+AFTER AT LEAST 8 QUESTIONS:
+
+↓
+
+Generate final feedback
+
+↓
+
+Mark session completed
+
+↓
+
+Return:
+
+{
+  "reply": "Interview completed.",
+  "done": true,
+  "feedback": {
+    "summary": "...",
+    "strengths": [],
+    "gaps": [],
+    "next": []
+  }
+}
+
+
+==================================================
+FEEDBACK
+==================================================
+
+For now feedback is deterministic/mock.
+
+It should be structurally valid and based at least loosely on the
+candidate/interview data.
+
+Required fields:
+
+feedback.summary
+feedback.strengths
+feedback.gaps
+feedback.next
+
+Use arrays for strengths, gaps, and next.
+
+Do not call an LLM.
+
+Later we will replace this implementation with an AI evaluator.
+
+
+==================================================
+FASTAPI ROUTE
+==================================================
+
+Create:
+
+api/interview.py
+
+The route should be thin.
+
+It should roughly perform:
+
+request validation
+    ↓
+session lookup/create
+    ↓
+candidate/curriculum services
+    ↓
+interview engine
+    ↓
+response
+
+DO NOT put business logic into the route.
+
+The route should delegate to services/engine.
+
+
+==================================================
+MAIN APPLICATION
+==================================================
+
+Create:
+
+app/main.py
+
+Configure:
+
+FastAPI application
+
+POST /api/interview
+
+CORS
+
+Development frontend origin:
+
+http://localhost:5173
+
+Allow the Vite frontend to communicate with the API.
+
+Do not use wildcard CORS unless necessary.
+
+
+==================================================
+ERROR HANDLING
+==================================================
+
+Return clean API errors.
+
+Examples:
+
+Unknown session:
+
+HTTP 404
+
+{
+  "detail": "Unknown sessionId"
+}
+
+Invalid request:
+
+HTTP 422
+
+FastAPI/Pydantic validation is acceptable.
+
+Completed session:
+
+Return a sensible error if another answer is submitted after
+the interview is already completed.
+
+
+==================================================
+TESTING
+==================================================
+
+Create tests using pytest and FastAPI's test client.
+
+At minimum test:
+
+1. Start interview
+
+POST /api/interview
+
+with:
+
+sessionId + candidate
+
+Expected:
+- HTTP 200
+- reply exists
+- done == false
+
+
+2. Continue interview
+
+Send the same sessionId with message.
+
+Expected:
+- HTTP 200
+- reply exists
+- done == false
+
+
+3. Session persistence
+
+Send multiple requests using the same sessionId.
+
+Verify:
+- conversation history grows
+- question count increases
+- state remains active until completion
+
+
+4. Unknown sessionId
+
+Send:
+
+{
+  "sessionId": "does-not-exist",
+  "message": "hello"
+}
+
+Expected:
+- HTTP 404
+
+
+5. Interview completion
+
+Continue a session until the minimum question count is reached.
+
+Verify:
+- done == true
+- feedback exists
+- feedback.summary exists
+- feedback.strengths is a list
+- feedback.gaps is a list
+- feedback.next is a list
+
+
+6. Missing message
+
+Send a continuation request without message.
+
+Expected:
+- validation error
+
+
+7. Invalid candidate
+
+Send malformed candidate data.
+
+Expected:
+- validation error
+
+
+==================================================
+MANUAL API VERIFICATION
+==================================================
+
+After implementation, verify the API manually.
+
+Run:
+
+uvicorn app.main:app --reload
+
+Then test:
+
+POST http://localhost:8000/api/interview
+
+using curl or the FastAPI Swagger UI.
+
+Also verify:
+
+http://localhost:8000/docs
+
+The endpoint must appear there.
+
+Document the exact commands in README.md.
+
+
+==================================================
+ENVIRONMENT
+==================================================
+
+Create:
+
+.env.example
+
+For now there should be NO LLM API key.
+
+If environment variables are needed, document them.
+
+Do not hardcode secrets.
+
+
+==================================================
+CODE QUALITY
+==================================================
+
+Follow these rules:
+
+- Python type hints
+- small focused functions
+- clear naming
+- no unnecessary abstractions
+- no duplicated business logic
+- no global mutable state except the intentional in-memory session store
+- keep route handlers thin
+- separate schemas, services, session management and interview engine
+- clear comments only where useful
+
+Do not over-engineer.
+
+This is a 48-hour hackathon MVP.
+
+
+==================================================
+IMPORTANT DEVELOPMENT RULE
+==================================================
+
+Implement this in stages.
+
+STAGE 1:
+Inspect files and report the discovered candidate/curriculum schemas.
+
+STAGE 2:
+Create project structure and dependencies.
+
+STAGE 3:
+Implement Pydantic schemas.
+
+STAGE 4:
+Implement curriculum and candidate services.
+
+STAGE 5:
+Implement in-memory session manager.
+
+STAGE 6:
+Implement deterministic mock interview engine.
+
+STAGE 7:
+Implement POST /api/interview.
+
+STAGE 8:
+Implement tests.
+
+STAGE 9:
+Run tests and fix failures.
+
+STAGE 10:
+Run the API and manually verify the endpoint.
+
+Do NOT jump directly to writing the entire application.
+
+After each stage, briefly report:
+- files changed
+- what was implemented
+- tests/status
+- anything that remains
+
+MOST IMPORTANT:
+DO NOT IMPLEMENT OPENAI, GEMINI, CLAUDE, LANGCHAIN, OR ANY OTHER LLM INTEGRATION.
+
+We will add the real AI interviewer only after the API contract,
+session management, mock engine, and tests are working correctly.
+
+### Outcome
+## Stage 1 — Discovered Schemas
+
+### Candidate (single object sent to API — **not** the `candidates.json` wrapper)
+
+The file `candidates.json` wraps entries in `{ "candidates": [...] }`, but the frontend sends **one raw entry** via `postInterview({ sessionId, candidate: rawCandidate })`.
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `member.id` | string | e.g. `"CAND-001"` |
+| `member.name` | string | |
+| `member.jobRole` | string | |
+| `member.yearsExperience` | number | |
+| `member.education` | string | |
+| `member.status` | string? | e.g. `"COMPLETED"` |
+| `missions[]` | array | `{ day, title?, passed?, skipped?, attempts? }` |
+| `signals.commitDays` | number | |
+| `signals.missionsCompleted` | number | |
+| `signals.missionsFirstTry` | number | |
+
+**Assumption:** A mission may be `passed`, `skipped`, or neither; `skipped` and `passed` are mutually exclusive.
+
+### Curriculum (`curriculum.json`)
+
+| Field | Type |
+|-------|------|
+| `cohort` | string |
+| `modules[]` | `{ n, title, days: [start, end] }` |
+| `days[]` | `{ day, title, type, tools[], objectives[] }` |
+
+---
+
+## Stages 2–10 — Implementation Complete
+
+### Files created
+
+```
+backend/
+├── app/
+│   ├── main.py
+│   ├── api/interview.py
+│   ├── schemas/interview.py
+│   ├── services/{session,candidate,curriculum}.py
+│   ├── interview/engine.py
+│   └── data/{candidates,curriculum}.json
+├── tests/test_interview.py
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+### What was implemented
+
+| Component | Behavior |
+|-----------|----------|
+| **Pydantic schemas** | Validates START (`sessionId` + `candidate`) vs CONTINUE (`sessionId` + `message`); rejects both/neither |
+| **Candidate service** | Validates raw candidate; exposes skipped/difficult/first-try missions |
+| **Curriculum service** | Loads and validates `curriculum.json`; day/module lookup |
+| **Session store** | In-memory `InterviewSession` with conversation, question count, planned days, state |
+| **Mock engine** | 8 deterministic questions, ≥4 curriculum days, candidate-tailored day selection (skipped → retries → strengths) |
+| **API route** | Thin `POST /api/interview` delegating to services/engine |
+| **CORS** | Allows `http://localhost:5173` |
+| **Errors** | 404 unknown session, 409 duplicate start, 400 completed session, 422 validation |
+
+### Tests & manual verification
+
+- **8/8 pytest tests passing**
+- **Manual API verified** — start + continue work on `http://127.0.0.1:8000`
+- **Swagger UI** — `http://localhost:8000/docs`
+
+### Run it
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+pytest -v
+```
+
+### Connect frontend (no frontend changes made)
+
+The Vite proxy still targets port 3000, so use:
+
+```bash
+VITE_USE_MOCK=false VITE_API_BASE_URL=http://localhost:8000 npm run dev
+```
+
+---
+
+## Interview flow
+
+1. **START** → welcome + question 1 (`done: false`)
+2. **CONTINUE** × 7 → next questions (`done: false`)
+3. **CONTINUE** (8th answer) → `"Interview completed."` + `feedback` (`done: true`)
+
+Question selection prioritizes skipped missions, high-attempt areas, and first-try strengths — rotated deterministically by `member.id`.
+
+No LLM, auth, or database was added. The mock engine interface in `interview/engine.py` is ready to swap for a real AI interviewer later.
+
+## Prompt No.16
+
+**AI Tool: Chatgpt**
+
+**Author: Yash Palkar** 
+
+### Prompt
+## Stage 1 — Discovered Schemas
+
+### Candidate (single object sent to API — **not** the `candidates.json` wrapper)
+
+The file `candidates.json` wraps entries in `{ "candidates": [...] }`, but the frontend sends **one raw entry** via `postInterview({ sessionId, candidate: rawCandidate })`.
+
+| Field                       | Type    | Notes                                           |
+| --------------------------- | ------- | ----------------------------------------------- |
+| `member.id`                 | string  | e.g. `"CAND-001"`                               |
+| `member.name`               | string  |                                                 |
+| `member.jobRole`            | string  |                                                 |
+| `member.yearsExperience`    | number  |                                                 |
+| `member.education`          | string  |                                                 |
+| `member.status`             | string? | e.g. `"COMPLETED"`                              |
+| `missions[]`                | array   | `{ day, title?, passed?, skipped?, attempts? }` |
+| `signals.commitDays`        | number  |                                                 |
+| `signals.missionsCompleted` | number  |                                                 |
+| `signals.missionsFirstTry`  | number  |                                                 |
+
+**Assumption:** A mission may be `passed`, `skipped`, or neither; `skipped` and `passed` are mutually exclusive.
+
+### Curriculum (`curriculum.json`)
+
+| Field       | Type                                          |
+| ----------- | --------------------------------------------- |
+| `cohort`    | string                                        |
+| `modules[]` | `{ n, title, days: [start, end] }`            |
+| `days[]`    | `{ day, title, type, tools[], objectives[] }` |
+
+---
+
+## Stages 2–10 — Implementation Complete
+
+### Files created
+
+```
+backend/
+├── app/
+│   ├── main.py
+│   ├── api/interview.py
+│   ├── schemas/interview.py
+│   ├── services/{session,candidate,curriculum}.py
+│   ├── interview/engine.py
+│   └── data/{candidates,curriculum}.json
+├── tests/test_interview.py
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+### What was implemented
+
+| Component              | Behavior                                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| **Pydantic schemas**   | Validates START (`sessionId` + `candidate`) vs CONTINUE (`sessionId` + `message`); rejects both/neither         |
+| **Candidate service**  | Validates raw candidate; exposes skipped/difficult/first-try missions                                           |
+| **Curriculum service** | Loads and validates `curriculum.json`; day/module lookup                                                        |
+| **Session store**      | In-memory `InterviewSession` with conversation, question count, planned days, state                             |
+| **Mock engine**        | 8 deterministic questions, ≥4 curriculum days, candidate-tailored day selection (skipped → retries → strengths) |
+| **API route**          | Thin `POST /api/interview` delegating to services/engine                                                        |
+| **CORS**               | Allows `http://localhost:5173`                                                                                  |
+| **Errors**             | 404 unknown session, 409 duplicate start, 400 completed session, 422 validation                                 |
+
+### Tests & manual verification
+
+- **8/8 pytest tests passing**
+- **Manual API verified** — start + continue work on `http://127.0.0.1:8000`
+- **Swagger UI** — `http://localhost:8000/docs`
+
+### Run it
+
+```bash
+cd backend
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+pytest -v
+```
+
+### Connect frontend (no frontend changes made)
+
+The Vite proxy still targets port 3000, so use:
+
+```bash
+VITE_USE_MOCK=false VITE_API_BASE_URL=http://localhost:8000 npm run dev
+```
+
+---
+
+## Interview flow
+
+1. **START** → welcome + question 1 (`done: false`)
+2. **CONTINUE** × 7 → next questions (`done: false`)
+3. **CONTINUE** (8th answer) → `"Interview completed."` + `feedback` (`done: true`)
+
+Question selection prioritizes skipped missions, high-attempt areas, and first-try strengths — rotated deterministically by `member.id`.
+
+No LLM, auth, or database was added. The mock engine interface in `interview/engine.py` is ready to swap for a real AI interviewer later.
+
+
+
+cursor created this , so what to do next
+
+### Outcome
+This is actually a **very good checkpoint**. Don't ask Cursor to add the LLM yet.
+
+You now have a working backend skeleton whose job is:
+
+```text
+Frontend
+   ↓
+POST /api/interview
+   ↓
+FastAPI
+   ↓
+Session Store
+   ↓
+Mock Interview Engine
+   ↓
+JSON
+   ↓
+Frontend
+```
+
+## What you should do next
+
+### Step 1 — Don't change code yet. Run the backend yourself
+
+From the backend folder:
+
+```bash
+cd backend
+
+python -m venv .venv
+```
+
+Windows:
+
+```bash
+.venv\Scripts\activate
+```
+
+Then:
+
+```bash
+pip install -r requirements.txt
+```
+
+Run:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+You should see something like:
+
+```text
+Uvicorn running on http://127.0.0.1:8000
+```
+
+Then open:
+
+```text
+http://localhost:8000/docs
+```
+
+You should see:
+
+```text
+POST /api/interview
+```
+
+---
+
+# Step 2 — Test the API through Swagger
+
+Don't connect the frontend yet.
+
+First prove the backend works independently.
+
+Click:
+
+```text
+POST /api/interview
+→ Try it out
+```
+
+For the first request, use an **actual raw candidate object from your `candidates.json`**, because Cursor discovered that the frontend sends one candidate entry rather than the entire `{ "candidates": [...] }` wrapper.
+
+Your request should conceptually be:
+
+```json
+{
+  "sessionId": "test-001",
+  "candidate": {
+    "...actual candidate object..."
+  }
+}
+```
+
+You should get:
+
+```json
+{
+  "reply": "...",
+  "done": false
+}
+```
+
+Save the `sessionId`.
+
+---
+
+# Step 3 — Test the session
+
+Now send:
+
+```json
+{
+  "sessionId": "test-001",
+  "message": "This is my answer to the question."
+}
+```
+
+You should get another question:
+
+```json
+{
+  "reply": "...",
+  "done": false
+}
+```
+
+Do this repeatedly.
+
+Your target is:
+
+```text
+START
+  ↓
+Q1
+  ↓
+Answer
+  ↓
+Q2
+  ↓
+Answer
+  ↓
+Q3
+  ↓
+...
+  ↓
+Q8
+  ↓
+Final feedback
+```
+
+Eventually:
+
+```json
+{
+  "reply": "Interview completed.",
+  "done": true,
+  "feedback": {
+    "summary": "...",
+    "strengths": [],
+    "gaps": [],
+    "next": []
+  }
+}
+```
+
+---
+
+# Step 4 — Run the automated tests
+
+In another terminal:
+
+```bash
+cd backend
+.venv\Scripts\activate
+pytest -v
+```
+
+You already have **8/8 passing**, so this is mainly making sure the environment on your machine reproduces Cursor's result.
+
+Don't move forward if tests fail.
+
+---
+
+# Step 5 — Now connect your existing frontend
+
+This is the exciting part.
+
+Your existing frontend already has the abstraction:
+
+```text
+InterviewGateway
+```
+
+and apparently already has the ability to switch between mock and API mode.
+
+Cursor reported:
+
+```bash
+VITE_USE_MOCK=false
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+So run the frontend with:
+
+```bash
+VITE_USE_MOCK=false VITE_API_BASE_URL=http://localhost:8000 npm run dev
+```
+
+On Windows PowerShell, use:
+
+```powershell
+$env:VITE_USE_MOCK="false"
+$env:VITE_API_BASE_URL="http://localhost:8000"
+npm run dev
+```
+
+Then:
+
+```text
+Browser
+   ↓
+Frontend
+   ↓
+POST localhost:8000/api/interview
+   ↓
+FastAPI
+```
+
+---
+
+# Step 6 — Test the complete flow
+
+Now go through your actual UI.
+
+You want to verify:
+
+### Candidate selection
+
+```text
+Candidates page
+      ↓
+Select candidate
+```
+
+### Start
+
+```text
+Start interview
+      ↓
+POST /api/interview
+      ↓
+Backend creates session
+      ↓
+Question appears
+```
+
+### Answer
+
+```text
+Type answer
+      ↓
+Submit
+      ↓
+POST /api/interview
+      ↓
+Backend finds session
+      ↓
+Stores answer
+      ↓
+Generates next question
+      ↓
+Frontend displays it
+```
+
+### Completion
+
+```text
+8 questions
+      ↓
+Backend returns done=true
+      ↓
+Frontend navigates/displays Results
+      ↓
+Feedback displayed
+```
+
+---
+
+# ⚠️ There is one thing I want you to check carefully
+
+Your backend report says:
+
+> `candidate service validates raw candidate`
+
+and:
+
+> `Pydantic schemas validate START`
+
+That's good, **but don't assume the schema is correct just because the tests pass**.
+
+The tests may only prove that the implementation is internally consistent.
+
+You should verify that the actual candidate JSON being sent by your frontend is accepted.
+
+Specifically test an actual object containing:
+
+```text
+member
+  ├── id
+  ├── name
+  ├── jobRole
+  ├── yearsExperience
+  ├── education
+  └── status
+
+missions[]
+
+signals
+  ├── commitDays
+  ├── missionsCompleted
+  └── missionsFirstTry
+```
+
+because this is the actual structure Cursor discovered.
+
+---
+
+# Step 7 — Check the browser Network tab
+
+This is one of the most useful things you can do.
+
+Open Chrome/Edge DevTools:
+
+```text
+F12
+→ Network
+→ Fetch/XHR
+```
+
+Start the interview.
+
+You should see:
+
+```text
+POST
+/api/interview
+```
+
+Click it and inspect:
+
+### Request
+
+```json
+{
+  "sessionId": "...",
+  "candidate": {...}
+}
+```
+
+Then inspect the response:
+
+```json
+{
+  "reply": "...",
+  "done": false
+}
+```
+
+Then submit an answer.
+
+You should see another:
+
+```text
+POST /api/interview
+```
+
+with:
+
+```json
+{
+  "sessionId": "...",
+  "message": "..."
+}
+```
+
+This proves your frontend and backend are genuinely communicating.
+
+---
+
+# Step 8 — Fix integration issues, not architecture
+
+If the frontend breaks, **don't immediately ask Cursor to rewrite everything**.
+
+Give Cursor the actual error.
+
+For example:
+
+```text
+The backend is running on localhost:8000 and the frontend is
+running on localhost:5173.
+
+The frontend is making:
+
+POST /api/interview
+
+The backend returns HTTP 422.
+
+Here is the actual request payload:
+
+[PASTE NETWORK REQUEST]
+
+Here is the response:
+
+[PASTE RESPONSE]
+
+Inspect the existing frontend InterviewGateway and backend
+Pydantic schema.
+
+Find the contract mismatch.
+
+Do NOT rewrite the architecture.
+Make the smallest change necessary while preserving the
+specified API contract.
+```
+
+That's the kind of AI-assisted development you want.
+
+---
+
+# Step 9 — Commit this checkpoint
+
+Once this works:
+
+```bash
+git add backend
+git commit -m "feat: add interview backend session infrastructure"
+```
+
+Then you have a stable checkpoint.
+
+Your Git history becomes something like:
+
+```text
+frontend complete
+       ↓
+backend API contract
+       ↓
+mock interview engine
+       ↓
+frontend-backend integration
+       ↓
+AI interviewer       ← NEXT MAJOR PHASE
+       ↓
+final polish
+```
+
+---
+
+# And THEN we build the actual AI
+
+This is where I would **not** let Cursor randomly "add AI".
+
+Your current architecture gives us a very nice seam:
+
+```text
+                    CURRENT
+                       │
+                       ▼
+              Mock Interview Engine
+                       │
+                       │
+                    replace
+                       │
+                       ▼
+                    FUTURE
+                       │
+                       ▼
+              AI Interview Engine
+                       │
+          ┌────────────┼────────────┐
+          ▼            ▼            ▼
+     Candidate     Curriculum    Conversation
+      Context        Context       History
+          │            │            │
+          └────────────┼────────────┘
+                       ▼
+                  AI Interviewer
+                       │
+              ┌────────┴────────┐
+              ▼                 ▼
+          Question          Evaluation
+              │                 │
+              └────────┬────────┘
+                       ▼
+                  Next Question
+```
+
+The AI should eventually be responsible for the **adaptive reasoning**, while FastAPI remains responsible for the **API, session, validation, and orchestration**.
+
+---
+
+# Your next 3 tasks, in exact order
+
+Don't get distracted by anything else right now.
+
+### 🔴 Task 1 — Backend standalone
+
+```text
+pytest -v
+        ↓
+8/8 pass
+        ↓
+Swagger
+        ↓
+START → CONTINUE → ... → DONE
+```
+
+### 🟠 Task 2 — Frontend ↔ Backend
+
+```text
+Vite :5173
+     ↓
+FastAPI :8000
+     ↓
+POST /api/interview
+     ↓
+Mock engine
+```
+
+Verify the complete interview through the actual UI.
+
+### 🟢 Task 3 — Only after that
+
+We replace:
+
+```text
+MockInterviewEngine
+```
+
+with:
+
+```text
+AIInterviewEngine
+```
+
+**Don't start Task 3 until Task 1 + Task 2 are working.**
+
+That's the safest way to spend your hackathon time because if the AI integration gets messy, you'll still have a completely functional end-to-end product to demo.
+
+## Prompt No.17
+
+**AI Tool: Chatgpt**
+
+**Author: Yash Palkar** 
+
+### Prompt
+the automated tests show this result : 
+
+\======================================================= test session starts =======================================================
+platform win32 -- Python 3.14.2, pytest-8.4.2, pluggy-1.6.0 -- D:\Hackathon\AB talks\The-Interview-Agent\backend.venv\Scripts\python.exe
+cachedir: .pytest\_cache
+rootdir: D:\Hackathon\AB talks\The-Interview-Agent\backend
+plugins: anyio-4.14.2
+collected 8 items
+
+tests/test\_interview\.py::test\_start\_interview PASSED                                                                         [ 12%]
+tests/test\_interview\.py::test\_continue\_interview PASSED                                                                      [ 25%]
+tests/test\_interview\.py::test\_session\_persistence PASSED                                                                     [ 37%]
+tests/test\_interview\.py::test\_unknown\_session PASSED                                                                         [ 50%]
+tests/test\_interview\.py::test\_interview\_completion PASSED                                                                    [ 62%]
+tests/test\_interview\.py::test\_missing\_message\_on\_continuation PASSED                                                         [ 75%]
+tests/test\_interview\.py::test\_invalid\_candidate PASSED                                                                       [ 87%]
+tests/test\_interview\.py::test\_completed\_session\_rejects\_continuation PASSED                                                  [100%]
+
+\======================================================== warnings summary =========================================================
+.venv\Lib\site-packages\fastapi\testclient.py:1
+D:\Hackathon\AB talks\The-Interview-Agent\backend.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+from starlette.testclient import TestClient as TestClient  # noqa
+
+\-- Docs: [https://docs.pytest.org/en/stable/how-to/capture-warnings.html](https://docs.pytest.org/en/stable/how-to/capture-warnings.html)
+\================================================== 8 passed, 1 warning in 0.63s ===================================================
+
+
+
+
+as for the testing on swagger, i think im supposed to enter the member field of the json under the candidate after the session id but it shows 
+
+| 422 |   |
+| --- | - |
+
+Error: Unprocessable Content
+
+what am i doing wrong? 
+
+### Outcome
+You're actually in a **good state**: `8 passed` means the backend's automated tests are working. The `httpx` message is only a warning, not a test failure.
+
+The Swagger `422` is a separate issue. Most likely, the JSON you're entering doesn't match the **Pydantic request schema that Cursor generated**.
+
+### First: understand what `422` means
+
+FastAPI returns:
+
+```text
+422 Unprocessable Content
+```
+
+when the JSON is valid JSON, but it **doesn't match the API's expected structure/types**.
+
+Your endpoint has two possible request shapes:
+
+**Start:**
+
+```json
+{
+  "sessionId": "test-001",
+  "candidate": {
+    "...raw candidate object..."
+  }
+}
+```
+
+**Continue:**
+
+```json
+{
+  "sessionId": "test-001",
+  "message": "My answer..."
+}
+```
+
+For the first request, yes, you put the **whole raw candidate object** under `candidate`.
+
+But here's the important part:
+
+> Don't put just the `"member"` object under `"candidate"`.
+
+The candidate appears to have this structure:
+
+```json
+{
+  "member": {
+    "id": "CAND-001",
+    "name": "...",
+    "jobRole": "...",
+    "yearsExperience": 2,
+    "education": "...",
+    "status": "COMPLETED"
+  },
+  "missions": [
+    ...
+  ],
+  "signals": {
+    "commitDays": 10,
+    "missionsCompleted": 8,
+    "missionsFirstTry": 6
+  }
+}
+```
+
+So your request should look like:
+
+```json
+{
+  "sessionId": "test-001",
+  "candidate": {
+    "member": {
+      "id": "CAND-001",
+      "name": "Actual Candidate Name",
+      "jobRole": "Software Engineer",
+      "yearsExperience": 2,
+      "education": "Computer Science",
+      "status": "COMPLETED"
+    },
+    "missions": [
+      {
+        "day": 1,
+        "title": "Some mission",
+        "passed": true,
+        "skipped": false,
+        "attempts": 1
+      }
+    ],
+    "signals": {
+      "commitDays": 5,
+      "missionsCompleted": 3,
+      "missionsFirstTry": 2
+    }
+  }
+}
+```
+
+**But don't use my example values if your actual `candidates.json` has different values/structure.** Use one complete candidate entry from your actual JSON.
+
+---
+
+## The easiest way to diagnose your exact 422
+
+In Swagger, after the `422`, look at the response body.
+
+It should give something like:
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "candidate", "member"],
+      "msg": "Field required"
+    }
+  ]
+}
+```
+
+That `loc` tells us exactly what is wrong.
+
+### Do this:
+
+1. Go to:
+
+```text
+http://localhost:8000/docs
+```
+
+2. Open:
+
+```text
+POST /api/interview
+```
+
+3. Click **Try it out**.
+
+4. Enter your request.
+
+5. Click **Execute**.
+
+6. Copy the **Response body under the 422**.
+
+Send me that response body.
+
+---
+
+## Even better: use an actual candidate from your JSON
+
+Since your backend has:
+
+```text
+backend/app/data/candidates.json
+```
+
+open that file.
+
+You'll probably see something like:
+
+```json
+{
+  "candidates": [
+    {
+      "member": {...},
+      "missions": [...],
+      "signals": {...}
+    }
+  ]
+}
+```
+
+Take the **entire first object inside `candidates`**, not the wrapper:
+
+```text
+❌ Don't send:
+
+{
+  "candidates": [...]
+}
+
+❌ Don't send:
+
+{
+  "member": {...}
+}
+
+✅ Send:
+
+{
+  "member": {...},
+  "missions": [...],
+  "signals": {...}
+}
+```
+
+Then wrap that under `"candidate"`:
+
+```json
+{
+  "sessionId": "swagger-test-001",
+  "candidate": {
+    "member": {
+      "...": "..."
+    },
+    "missions": [],
+    "signals": {
+      "...": "..."
+    }
+  }
+}
+```
+
+---
+
+## Your test result itself is excellent
+
+This:
+
+```text
+8 passed, 1 warning
+```
+
+means:
+
+```text
+START                    ✅
+CONTINUE                 ✅
+SESSION PERSISTENCE      ✅
+UNKNOWN SESSION          ✅
+COMPLETION               ✅
+MISSING MESSAGE          ✅
+INVALID CANDIDATE        ✅
+COMPLETED SESSION        ✅
+```
+
+The warning:
+
+```text
+StarletteDeprecationWarning:
+Using `httpx` with `starlette.testclient` is deprecated
+```
+
+is **not causing your 422**.
+
+Don't start changing dependencies just because of that warning. Your tests are passing.
+
+---
+
+### One thing I want from you
+
+Send me **the exact 422 Response body from Swagger** (the JSON under the response), and if possible the JSON you're currently entering.
+
+I'll tell you exactly which field is causing it and what to paste into Swagger.
+
+
+## Prompt No.18
+
+**AI Tool: Chatgpt**
+
+**Author: Yash Palkar** 
+
+### Prompt
+got the interview completed as well, now tell me how to connect the frontend and backend together
+
+### Outcome
+Absolutely. Since **both sides are independently working now**, you're at the best point to integrate them. Don't rewrite either side. We just need to connect the existing `InterviewGateway` in your frontend to `POST /api/interview`.
+
+Your target is:
+
+```text
+┌──────────────────┐
+│   React + Vite   │
+│   localhost:5173 │
+└────────┬─────────┘
+         │
+         │ POST /api/interview
+         ▼
+┌──────────────────┐
+│     FastAPI      │
+│   localhost:8000 │
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│ Mock Interview   │
+│     Engine       │
+└──────────────────┘
+```
+
+## 1. Keep both servers running
+
+### Terminal 1 — Backend
+
+From `backend/`:
+
+```bash
+.venv\Scripts\activate
+uvicorn app.main:app --reload
+```
+
+You should have:
+
+```text
+http://localhost:8000
+```
+
+Verify:
+
+```text
+http://localhost:8000/docs
+```
+
+works.
+
+---
+
+### Terminal 2 — Frontend
+
+From your frontend root:
+
+```bash
+npm install
+npm run dev
+```
+
+You should have something like:
+
+```text
+http://localhost:5173
+```
+
+---
+
+# 2. Check your frontend's `interviewGateway.ts`
+
+This is the key file.
+
+Your frontend already has the abstraction:
+
+```text
+src/
+└── interviewGateway.ts
+```
+
+You want it to have **two implementations** conceptually:
+
+```text
+InterviewGateway
+       │
+       ├── MockInterviewGateway
+       │
+       └── HttpInterviewGateway
+```
+
+The current mock implementation can remain.
+
+We just need the HTTP implementation.
+
+---
+
+# 3. Ask Cursor to inspect before changing anything
+
+Since Cursor already knows your frontend codebase, give it this prompt:
+
+```text
+We now have a working FastAPI backend and need to connect the existing
+frontend to it.
+
+IMPORTANT:
+Do NOT rewrite the frontend architecture.
+Do NOT modify the UI.
+Do NOT remove MockInterviewGateway.
+Do NOT change the backend API.
+
+First inspect:
+- src/interviewGateway.ts
+- src/App.tsx
+- src/data/candidates.ts
+- package.json
+- existing Vite configuration
+- existing environment configuration
+
+The backend is running at:
+
+http://localhost:8000
+
+API:
+
+POST /api/interview
+
+START request:
+
+{
+  "sessionId": "abc-123",
+  "candidate": <RAW candidate.json object>
+}
+
+START response:
+
+{
+  "reply": "...",
+  "done": false
+}
+
+CONTINUE request:
+
+{
+  "sessionId": "abc-123",
+  "message": "candidate answer"
+}
+
+CONTINUE response:
+
+{
+  "reply": "...",
+  "done": false
+}
+
+FINAL response:
+
+{
+  "reply": "Interview completed.",
+  "done": true,
+  "feedback": {
+    "summary": "...",
+    "strengths": [],
+    "gaps": [],
+    "next": []
+  }
+}
+
+The frontend should use the HTTP backend when:
+
+VITE_USE_MOCK=false
+
+and continue using the existing mock gateway when:
+
+VITE_USE_MOCK=true
+
+Implement the smallest possible change.
+
+Requirements:
+
+1. Preserve the existing InterviewGateway interface if possible.
+2. Add an HTTP implementation of InterviewGateway.
+3. Use fetch() rather than adding Axios.
+4. Generate/store a sessionId when an interview starts.
+5. Send the RAW candidate JSON object expected by the backend.
+6. Send the candidate only on the initial request.
+7. Send only sessionId + message on subsequent requests.
+8. Convert the backend response into the existing frontend InterviewTurn/Feedback types.
+9. Preserve loading/error handling.
+10. Do not modify visual/UI components unless absolutely necessary.
+11. Do not expose or add any API keys.
+12. Do not modify the FastAPI backend.
+
+Environment variables:
+
+VITE_USE_MOCK=false
+VITE_API_BASE_URL=http://localhost:8000
+
+After implementing:
+- run npm run build
+- fix any TypeScript errors
+- explain exactly which files were changed.
+```
+
+That should be your next Cursor task.
+
+---
+
+# 4. Important: the candidate object
+
+This is probably the **most likely integration issue**.
+
+Your backend expects:
+
+```json
+{
+  "sessionId": "...",
+  "candidate": {
+    "member": {...},
+    "missions": [...],
+    "signals": {...}
+  }
+}
+```
+
+It does **NOT** want the frontend's transformed `CandidateViewModel`.
+
+Your frontend currently has a transformation layer:
+
+```text
+candidates.json
+       ↓
+candidates.ts
+       ↓
+CandidateViewModel
+       ↓
+UI
+```
+
+That's great for displaying candidates.
+
+But when starting the interview, you need:
+
+```text
+Selected candidate
+       ↓
+RAW candidate JSON
+       ↓
+POST /api/interview
+```
+
+So tell Cursor specifically:
+
+> **Do not send the display/view model to the backend. Send the original raw candidate object.**
+
+This is very important.
+
+---
+
+# 5. Session ID
+
+The frontend needs to create a session ID when the interview starts.
+
+For example:
+
+```ts
+const sessionId = crypto.randomUUID();
+```
+
+Then:
+
+```json
+{
+  "sessionId": "generated-id",
+  "candidate": {...}
+}
+```
+
+Every subsequent answer uses that **same** ID:
+
+```json
+{
+  "sessionId": "same-id",
+  "message": "candidate answer"
+}
+```
+
+So:
+
+```text
+START
+sessionId = ABC
+        ↓
+Q1
+
+ANSWER
+sessionId = ABC
+        ↓
+Q2
+
+ANSWER
+sessionId = ABC
+        ↓
+Q3
+```
+
+Never generate a new ID for each answer.
+
+---
+
+# 6. Your HTTP implementation should conceptually look like this
+
+You don't necessarily need to manually write this if Cursor implements it, but understand what it's doing.
+
+### Start
+
+```ts
+const response = await fetch(
+  `${API_BASE_URL}/api/interview`,
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      sessionId,
+      candidate: rawCandidate,
+    }),
+  }
+);
+```
+
+Then:
+
+```ts
+const data = await response.json();
+```
+
+---
+
+### Submit answer
+
+```ts
+const response = await fetch(
+  `${API_BASE_URL}/api/interview`,
+  {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      sessionId,
+      message: answer,
+    }),
+  }
+);
+```
+
+That's literally the bridge between your two systems.
+
+---
+
+# 7. Environment configuration
+
+I'd create:
+
+```text
+frontend/
+├── .env
+├── .env.example
+└── ...
+```
+
+Development `.env`:
+
+```env
+VITE_USE_MOCK=false
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+And `.env.example`:
+
+```env
+VITE_USE_MOCK=true
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+Don't put secrets there.
+
+There shouldn't be any AI API key in the frontend.
+
+---
+
+# 8. CORS is already handled
+
+Your backend already allows:
+
+```text
+http://localhost:5173
+```
+
+So:
+
+```text
+localhost:5173
+      │
+      │ browser request
+      ▼
+localhost:8000
+```
+
+should be permitted.
+
+If your Vite server happens to start on `5174` or another port, you'll get a CORS issue.
+
+If that happens, either:
+
+* start Vite on `5173`, or
+* update backend CORS to include the actual development origin.
+
+For now, keep it at `5173`.
+
+---
+
+# 9. Now test the real integration
+
+Once Cursor finishes, start both servers.
+
+### Backend
+
+```bash
+uvicorn app.main:app --reload
+```
+
+### Frontend
+
+```bash
+npm run dev
+```
+
+Then open:
+
+```text
+http://localhost:5173
+```
+
+Go through:
+
+```text
+Landing
+   ↓
+Candidates
+   ↓
+Select candidate
+   ↓
+Setup
+   ↓
+Start Interview
+```
+
+When you start the interview, open:
+
+```text
+F12
+→ Network
+```
+
+You should see:
+
+```text
+POST http://localhost:8000/api/interview
+```
+
+with:
+
+```json
+{
+  "sessionId": "...",
+  "candidate": {
+    "member": {},
+    "missions": [],
+    "signals": {}
+  }
+}
+```
+
+And response:
+
+```json
+{
+  "reply": "...",
+  "done": false
+}
+```
+
+---
+
+# 10. Then submit an answer
+
+Type something into your interview answer box.
+
+Click submit.
+
+Network should show:
+
+```text
+POST http://localhost:8000/api/interview
+```
+
+Request:
+
+```json
+{
+  "sessionId": "THE-SAME-ID",
+  "message": "My answer..."
+}
+```
+
+Response:
+
+```json
+{
+  "reply": "Next question...",
+  "done": false
+}
+```
+
+The critical thing is:
+
+```text
+START sessionId
+       ↓
+      ABC
+       ↓
+Answer 1 → ABC
+       ↓
+Answer 2 → ABC
+       ↓
+Answer 3 → ABC
+```
+
+If the ID changes, the backend will treat it as a new/unknown session.
+
+---
+
+# 11. Finally test completion
+
+Continue until the eighth question.
+
+You should eventually see:
+
+```json
+{
+  "reply": "Interview completed.",
+  "done": true,
+  "feedback": {
+    "summary": "...",
+    "strengths": [...],
+    "gaps": [...],
+    "next": [...]
+  }
+}
+```
+
+Your frontend should then show the Results screen.
+
+So your complete product is now:
+
+```text
+                 YOUR HACKATHON PRODUCT
+
+┌──────────────────────────────────────────┐
+│              React Frontend              │
+│                                          │
+│ Landing → Candidates → Setup             │
+│                         ↓                │
+│                     Interview             │
+│                         ↓                │
+│                     Results               │
+└─────────────────────┬────────────────────┘
+                      │
+                      │ HTTP
+                      ▼
+┌──────────────────────────────────────────┐
+│              FastAPI Backend             │
+│                                          │
+│ POST /api/interview                      │
+│          ↓                               │
+│ Session Manager                          │
+│          ↓                               │
+│ Candidate + Curriculum Services          │
+│          ↓                               │
+│ Mock Interview Engine                    │
+└──────────────────────────────────────────┘
+```
+
+### And don't add the real LLM yet.
+
+First get **this exact flow working from the browser**.
+
+Once you can select a candidate → start → answer → get 8 questions → see feedback **without opening Swagger**, your frontend/backend integration is complete.
+
+Then you're ready for the most important next phase: replacing the deterministic mock engine with the actual **AI interviewer**, while keeping this API contract unchanged.
+
+
+## Prompt No.19
+
+**AI Tool: Cursor**
+
+**Author: Yash Palkar** 
+
+### Prompt
+We now have a working FastAPI backend and need to connect the existing
+frontend to it.
+
+IMPORTANT:
+Do NOT rewrite the frontend architecture.
+Do NOT modify the UI.
+Do NOT remove MockInterviewGateway.
+Do NOT change the backend API.
+
+First inspect:
+- src/interviewGateway.ts
+- src/App.tsx
+- src/data/candidates.ts
+- package.json
+- existing Vite configuration
+- existing environment configuration
+
+The backend is running at:
+
+http://localhost:8000
+
+API:
+
+POST /api/interview
+
+START request:
+
+{
+  "sessionId": "abc-123",
+  "candidate": <RAW candidate.json object>
+}
+
+START response:
+
+{
+  "reply": "...",
+  "done": false
+}
+
+CONTINUE request:
+
+{
+  "sessionId": "abc-123",
+  "message": "candidate answer"
+}
+
+CONTINUE response:
+
+{
+  "reply": "...",
+  "done": false
+}
+
+FINAL response:
+
+{
+  "reply": "Interview completed.",
+  "done": true,
+  "feedback": {
+    "summary": "...",
+    "strengths": [],
+    "gaps": [],
+    "next": []
+  }
+}
+
+The frontend should use the HTTP backend when:
+
+VITE_USE_MOCK=false
+
+and continue using the existing mock gateway when:
+
+VITE_USE_MOCK=true
+
+Implement the smallest possible change.
+
+Requirements:
+
+1. Preserve the existing InterviewGateway interface if possible.
+2. Add an HTTP implementation of InterviewGateway.
+3. Use fetch() rather than adding Axios.
+4. Generate/store a sessionId when an interview starts.
+5. Send the RAW candidate JSON object expected by the backend.
+6. Send the candidate only on the initial request.
+7. Send only sessionId + message on subsequent requests.
+8. Convert the backend response into the existing frontend InterviewTurn/Feedback types.
+9. Preserve loading/error handling.
+10. Do not modify visual/UI components unless absolutely necessary.
+11. Do not expose or add any API keys.
+12. Do not modify the FastAPI backend.
+
+Environment variables:
+
+VITE_USE_MOCK=false
+VITE_API_BASE_URL=http://localhost:8000
+
+After implementing:
+- run npm run build
+- fix any TypeScript errors
+- explain exactly which files were changed.
+
+### Outcome
+The frontend was already wired for live mode — `ApiInterviewGateway`, `useInterview`, session handling, and raw candidate payloads were in place. The only functional gap was that `postInterview` used Axios instead of `fetch()`.
+
+## What changed
+
+| File | Change |
+|------|--------|
+| `frontend/src/services/interview.ts` | Replaced Axios with `fetch()` — POSTs to `{VITE_API_BASE_URL}/api/interview`, sends start (`sessionId` + raw `candidate`) or continue (`sessionId` + `message`), validates and returns `InterviewResponse` |
+| `frontend/src/services/api.ts` | Removed Axios client; kept `getApiErrorMessage()` for thrown `Error` messages from fetch |
+| `frontend/vite.config.ts` | Updated dev proxy target from port 3000 → **8000** |
+| `frontend/.env.example` | Documented live-mode defaults |
+
+**Unchanged:** `interviewGateway.ts` (both gateways), `useInterview.ts`, UI components, types, backend.
+
+## How it works
+
+- `VITE_USE_MOCK=true` → `MockInterviewGateway` (unchanged)
+- `VITE_USE_MOCK=false` → `ApiInterviewGateway` → `fetch()` → `http://localhost:8000/api/interview`
+
+`useInterview` already generates a UUID via `startFreshSession()`, sends the raw candidate on start only, and maps `InterviewResponse` (including `feedback`) into existing state.
+
+## Run live mode
+
+```bash
+# frontend/
+cp .env.example .env
+npm run dev
+```
+
+Ensure the backend is running:
+
+```bash
+cd backend && uvicorn app.main:app --reload
+```
+
+`npm run build` completed successfully with no TypeScript errors.
+
+## Prompt No.20
+
+**AI Tool: Chatgpt**
+
+**Author: Yash Palkar** 
+
+### Prompt
+The frontend was already wired for live mode — `ApiInterviewGateway`, `useInterview`, session handling, and raw candidate payloads were in place. The only functional gap was that `postInterview` used Axios instead of `fetch()`.
+
+## What changed
+
+| File                                 | Change                                                                                                                                                                                                     |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `frontend/src/services/interview.ts` | Replaced Axios with `fetch()` — POSTs to `{VITE_API_BASE_URL}/api/interview`, sends start (`sessionId` + raw `candidate`) or continue (`sessionId` + `message`), validates and returns `InterviewResponse` |
+| `frontend/src/services/api.ts`       | Removed Axios client; kept `getApiErrorMessage()` for thrown `Error` messages from fetch                                                                                                                   |
+| `frontend/vite.config.ts`            | Updated dev proxy target from port 3000 → **8000**                                                                                                                                                         |
+| `frontend/.env.example`              | Documented live-mode defaults                                                                                                                                                                              |
+
+**Unchanged:** `interviewGateway.ts` (both gateways), `useInterview.ts`, UI components, types, backend.
+
+## How it works
+
+- `VITE_USE_MOCK=true` → `MockInterviewGateway` (unchanged)
+- `VITE_USE_MOCK=false` → `ApiInterviewGateway` → `fetch()` → `http://localhost:8000/api/interview`
+
+`useInterview` already generates a UUID via `startFreshSession()`, sends the raw candidate on start only, and maps `InterviewResponse` (including `feedback`) into existing state.
+
+## Run live mode
+
+```bash
+# frontend/
+cp .env.example .env
+npm run dev
+```
+
+Ensure the backend is running:
+
+```bash
+cd backend && uvicorn app.main:app --reload
+```
+
+`npm run build` completed successfully with no TypeScript errors.
+
+this is what cursor finished with, but i still couldnt see the POST req in the network tab what to do now
+
+### Outcome
+Yep — don't change the backend yet. Since Cursor says the frontend is already wired, the next job is to find **why the code path that calls `postInterview()` isn't being reached**.
+
+The key clue is:
+
+> You don't see **any** POST request in Network.
+
+That usually means the problem is **before `fetch()`**, rather than CORS/backend.
+
+## 1. First check that you're actually running the updated frontend
+
+Stop the frontend server completely with `Ctrl+C`.
+
+Then from the **frontend directory** run:
+
+```bash
+npm run dev
+```
+
+Look at the terminal. You should see something like:
+
+```text
+Local: http://localhost:5173/
+```
+
+Open **that exact URL**.
+
+Don't open an old tab/bookmark.
+
+Then do:
+
+```text
+Ctrl + Shift + R
+```
+
+to hard-refresh the page.
+
+---
+
+# 2. Check the `.env` file
+
+This is VERY important.
+
+Cursor says:
+
+```text
+VITE_USE_MOCK=false
+```
+
+But it only says `.env.example` was updated.
+
+You need an actual:
+
+```text
+frontend/.env
+```
+
+containing:
+
+```env
+VITE_USE_MOCK=false
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+### Not this:
+
+```text
+.env.example
+```
+
+### This:
+
+```text
+.env
+```
+
+Vite only loads the actual environment file.
+
+After creating/changing `.env`, **restart Vite**:
+
+```bash
+Ctrl+C
+npm run dev
+```
+
+Vite reads environment variables when it starts.
+
+---
+
+# 3. Check whether live mode is actually active
+
+This is the fastest diagnostic.
+
+Ask Cursor to temporarily add a console log at the point where the gateway is selected.
+
+Give Cursor:
+
+```text
+The frontend build succeeds, but when I start an interview I don't see
+POST /api/interview in the browser Network tab.
+
+Do not modify the architecture.
+
+Inspect the existing:
+- interviewGateway.ts
+- services/interview.ts
+- useInterview.ts
+- environment configuration
+
+First determine whether VITE_USE_MOCK=false is actually causing
+ApiInterviewGateway to be selected.
+
+Add temporary console logging only for debugging that shows:
+
+1. VITE_USE_MOCK value
+2. selected gateway (MockInterviewGateway or ApiInterviewGateway)
+3. when postInterview() is called
+4. the API URL being used
+
+Do not change the behavior otherwise.
+
+After identifying the issue, explain the cause before making a permanent fix.
+```
+
+Then reload the app and look at:
+
+```text
+F12
+→ Console
+```
+
+You should see something conceptually like:
+
+```text
+VITE_USE_MOCK = false
+Selected gateway = ApiInterviewGateway
+```
+
+If instead you see:
+
+```text
+VITE_USE_MOCK = true
+Selected gateway = MockInterviewGateway
+```
+
+we've found the problem.
+
+---
+
+# 4. Make sure you're actually starting the interview
+
+This sounds obvious, but Network only shows the request **after the function executes**.
+
+Go through:
+
+```text
+Candidate
+   ↓
+Select candidate
+   ↓
+Start Interview
+```
+
+Then immediately check:
+
+```text
+F12
+→ Network
+→ Fetch/XHR
+```
+
+Don't filter for only `POST` initially.
+
+Clear the Network tab first:
+
+```text
+🗑 Clear
+```
+
+Then click the actual **Start Interview** button.
+
+You should see something like:
+
+```text
+interview
+POST
+200
+```
+
+---
+
+# 5. Check the Console for JavaScript errors
+
+Before clicking Start Interview, open:
+
+```text
+F12
+→ Console
+```
+
+Look for red errors.
+
+Especially things like:
+
+```text
+Uncaught TypeError
+```
+
+or:
+
+```text
+Failed to fetch
+```
+
+or:
+
+```text
+Cannot read properties of undefined
+```
+
+If there is a frontend exception **before `fetch()`**, Network will show nothing.
+
+---
+
+# 6. Check the backend terminal
+
+Keep this running:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+When the frontend successfully calls the backend, the backend terminal should show something like:
+
+```text
+127.0.0.1:xxxxx - "POST /api/interview HTTP/1.1" 200 OK
+```
+
+So we have a very simple diagnostic:
+
+| What you see                                     | Meaning                              |
+| ------------------------------------------------ | ------------------------------------ |
+| Nothing in Network + nothing in backend terminal | `postInterview()` isn't being called |
+| Network request but backend sees nothing         | Browser/network/proxy issue          |
+| Backend sees `POST` + 4xx                        | Request payload/API contract issue   |
+| Backend sees `POST` + 200                        | Integration works                    |
+| Network shows `OPTIONS` but not POST             | CORS/preflight issue                 |
+
+**Based on what you're describing, I suspect the first case.**
+
+---
+
+# 7. One more important thing: Vite proxy vs API URL
+
+Cursor changed:
+
+```text
+vite.config.ts
+```
+
+from port `3000` → `8000`.
+
+That's okay, but there are two possible approaches.
+
+### Direct API
+
+Frontend:
+
+```text
+localhost:5173
+       │
+       │ fetch()
+       ▼
+localhost:8000/api/interview
+```
+
+### Vite proxy
+
+Frontend:
+
+```text
+localhost:5173
+       │
+       │ /api/interview
+       ▼
+Vite proxy
+       │
+       ▼
+localhost:8000
+```
+
+Cursor says your code is using:
+
+```text
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+so you're probably doing the **first approach**.
+
+That's perfectly fine for development.
+
+---
+
+# 8. Let's do one extremely useful test
+
+Open your browser console and run:
+
+```javascript
+fetch("http://localhost:8000/api/interview", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    sessionId: crypto.randomUUID(),
+    candidate: {}
+  })
+})
+```
+
+You'll probably get a `422`, because `{}` isn't a valid candidate.
+
+**That's okay.**
+
+The important thing is whether the browser makes the request.
+
+Go to:
+
+```text
+F12 → Network
+```
+
+and you should see:
+
+```text
+POST /api/interview
+```
+
+If you see that, your browser can reach the backend.
+
+Then we know the problem is definitely somewhere in the frontend's interview flow.
+
+---
+
+# 9. Better: use a REAL candidate for this test
+
+Take one complete candidate object from:
+
+```text
+backend/app/data/candidates.json
+```
+
+and run:
+
+```javascript
+fetch("http://localhost:8000/api/interview", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json"
+  },
+  body: JSON.stringify({
+    sessionId: crypto.randomUUID(),
+    candidate: YOUR_REAL_CANDIDATE_OBJECT
+  })
+})
+.then(r => r.json())
+.then(console.log)
+```
+
+You should get:
+
+```json
+{
+  "reply": "...",
+  "done": false
+}
+```
+
+If that works, your:
+
+```text
+Browser
+   ↓
+localhost:8000
+   ↓
+FastAPI
+```
+
+connection is definitely good.
+
+---
+
+# 10. I would NOT ask Cursor to make more changes yet
+
+Right now we want to locate the problem rather than let Cursor start modifying things randomly.
+
+Do these **three things in order**:
+
+### A.
+
+Check:
+
+```text
+frontend/.env
+```
+
+It should contain:
+
+```env
+VITE_USE_MOCK=false
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+Restart Vite afterward.
+
+### B.
+
+Open DevTools → Console and check whether the app is actually selecting:
+
+```text
+ApiInterviewGateway
+```
+
+### C.
+
+If it still doesn't work, give Cursor the debugging prompt above and get it to log:
+
+```text
+VITE_USE_MOCK
+selected gateway
+postInterview called
+API URL
+```
+
+---
+
+## Send me these 3 things after that
+
+You don't need to send the whole project.
+
+Just send:
+
+1. **Your `frontend/.env` contents** (only these two variables; no secrets)
+2. **What the browser Console says when you click Start Interview**
+3. **The relevant code from `interviewGateway.ts`**
+
+Then I can tell you exactly where the request is getting stuck instead of guessing.
+
+
+
+## Prompt No. 21
+
+**AI Tool: Cursor**
+
+**Author: Yash Palkar** 
+
+### Prompt
+The frontend build succeeds, but when I start an interview I don't see
+POST /api/interview in the browser Network tab.
+
+Do not modify the architecture.
+
+Inspect the existing:
+- interviewGateway.ts
+- services/interview.ts
+- useInterview.ts
+- environment configuration
+
+First determine whether VITE_USE_MOCK=false is actually causing
+ApiInterviewGateway to be selected.
+
+Add temporary console logging only for debugging that shows:
+
+1. VITE_USE_MOCK value
+2. selected gateway (MockInterviewGateway or ApiInterviewGateway)
+3. when postInterview() is called
+4. the API URL being used
+
+Do not change the behavior otherwise.
+
+After identifying the issue, explain the cause before making a permanent fix.
+
+### Outcome
+## Diagnosis
+
+**`VITE_USE_MOCK=false` was not taking effect** because there was no `frontend/.env` file — only `frontend/.env.example`.
+
+Vite loads `.env`, `.env.local`, etc., but **not** `.env.example`. So at runtime:
+
+```ts
+import.meta.env.VITE_USE_MOCK  // undefined
+undefined !== "false"          // true  → mock mode
+```
+
+That means `createGateway()` always picked **`MockInterviewGateway`**, which never calls `postInterview()` — so nothing showed up in the Network tab.
+
+`useInterview.ts` is fine: it calls `interviewGateway.startInterview()` correctly. The gateway selection happened once at module load, before any interview started.
+
+---
+
+## What the debug logs will show
+
+**Before fix** (no
+
+
+## Prompt No. 22
+
+**AI Tool: Chatgpt**
+
+**Author: Yash Palkar** 
+
+### Prompt
+cursor made the frontend/.env and now we can see the POST req in the network tab, so the frontend backend has been linked right ? or are there any other steps also, what to do next
+
+### Outcome
+
+Yes — **if you can see `POST /api/interview` in the browser Network tab when you start/continue the interview, the frontend is now actually calling the backend.** 🎉
+
+But there's one more distinction:
+
+> **Seeing the POST means the connection is established. Seeing the correct response and completing the interview through the UI means the integration is working end-to-end.**
+
+So don't start the AI/LLM work quite yet. Do this checklist first.
+
+## 1. Verify the POST response
+
+In DevTools:
+
+```text
+Network
+  ↓
+POST /api/interview
+  ↓
+Response
+```
+
+For the first request, you want:
+
+```json
+{
+  "reply": "...",
+  "done": false
+}
+```
+
+and ideally HTTP:
+
+```text
+200 OK
+```
+
+If you see `200`, excellent.
+
+---
+
+## 2. Verify the request payload
+
+Click the POST → **Payload**.
+
+For the first request it should look like:
+
+```json
+{
+  "sessionId": "some-uuid",
+  "candidate": {
+    "member": {...},
+    "missions": [...],
+    "signals": {...}
+  }
+}
+```
+
+The important things are:
+
+* `sessionId` exists
+* `candidate` is the **raw candidate structure**
+* `candidate` contains the expected `member`, `missions`, `signals`
+* you're not accidentally sending the frontend `CandidateViewModel`
+
+---
+
+## 3. Verify continuation requests
+
+This is even more important.
+
+Submit an answer.
+
+You should see another:
+
+```text
+POST /api/interview
+```
+
+But this time the payload should be:
+
+```json
+{
+  "sessionId": "THE-SAME-UUID",
+  "message": "your answer..."
+}
+```
+
+Notice:
+
+```text
+START:
+sessionId + candidate
+
+CONTINUE:
+sessionId + message
+```
+
+And **the session ID must remain identical**.
+
+For example:
+
+```text
+START       → abc-123
+Answer 1    → abc-123
+Answer 2    → abc-123
+Answer 3    → abc-123
+...
+Answer 8    → abc-123
+```
+
+---
+
+## 4. Complete the entire interview from the UI
+
+This is the real integration test.
+
+Don't use Swagger now.
+
+Do:
+
+```text
+Select candidate
+      ↓
+Start interview
+      ↓
+Question 1
+      ↓
+Submit answer
+      ↓
+Question 2
+      ↓
+...
+      ↓
+Question 8
+      ↓
+Interview completed
+      ↓
+Results page
+```
+
+At the end, check that the frontend actually displays the backend feedback:
+
+```json
+{
+  "feedback": {
+    "summary": "...",
+    "strengths": [],
+    "gaps": [],
+    "next": []
+  }
+}
+```
+
+If the Results page shows that correctly, **frontend ↔ backend integration is done.**
+
+---
+
+# 5. Check the backend terminal too
+
+While doing the interview, your FastAPI terminal should show requests similar to:
+
+```text
+POST /api/interview 200 OK
+POST /api/interview 200 OK
+POST /api/interview 200 OK
+...
+```
+
+You should see roughly one POST per interview interaction.
+
+That confirms the requests are reaching FastAPI.
+
+---
+
+# 6. Test the error cases from the actual frontend
+
+You don't need to deliberately break the UI, but check that errors don't crash the app.
+
+For example, if the backend becomes unavailable:
+
+```text
+Frontend
+   ↓
+Backend unavailable
+   ↓
+Frontend displays a sensible error
+```
+
+You don't want:
+
+```text
+Uncaught TypeError...
+blank screen
+```
+
+Your existing `getApiErrorMessage()` should help here.
+
+---
+
+# 7. One important thing before the AI phase
+
+Right now your architecture is:
+
+```text
+React
+  ↓
+ApiInterviewGateway
+  ↓
+POST /api/interview
+  ↓
+FastAPI
+  ↓
+Session Manager
+  ↓
+Mock Interview Engine
+  ↓
+Response
+```
+
+That is **exactly what you want at this stage**.
+
+The next change should NOT be:
+
+```text
+Frontend → LLM
+```
+
+Instead:
+
+```text
+React
+  ↓
+ApiInterviewGateway
+  ↓
+FastAPI
+  ↓
+Session Manager
+  ↓
+AI Interview Engine
+  ↓
+LLM
+```
+
+Your frontend shouldn't need to know whether the interviewer is mock or AI.
+
+That's a good architecture for the hackathon.
+
+---
+
+# So your current status
+
+I'd consider you here:
+
+```text
+                    STATUS
+
+Frontend UI                  ✅
+Frontend gateway             ✅
+Environment configuration    ✅
+FastAPI                      ✅
+API contract                 ✅
+Session management           ✅
+Mock interview               ✅
+Automated tests              ✅ 8/8
+Swagger testing              ✅
+Frontend → Backend request   ✅
+```
+
+Now you need to confirm:
+
+```text
+Full UI interview            ⬅️ DO THIS NOW
+        ↓
+Final feedback displayed     ⬅️ DO THIS NOW
+        ↓
+AI interviewer               ⬅️ THEN START
+```
+
+### My recommendation
+
+**Do one complete interview from the actual frontend right now.** Don't change any code.
+
+If you can:
+
+1. select a candidate,
+2. start the interview,
+3. answer all 8 questions,
+4. see the next questions arrive,
+5. reach `done: true`,
+6. see the feedback on the Results page,
+
+then **freeze this version and make a Git commit**:
+
+```bash
+git add .
+git commit -m "feat: connect frontend to interview backend"
+```
+
+That gives you a safe working checkpoint.
+
+**After that, your next task is the real AI interviewer.** That's where we should carefully design the prompt/context/structured output and replace the mock engine without breaking the API you've just finished integrating.
+
