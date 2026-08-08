@@ -14,7 +14,7 @@ export default defineConfig({
     proxy: {
       // PLACEHOLDER: update target when backend port is known
       "/api": {
-        target: "http://localhost:3000",
+        target: "http://localhost:8000",
         changeOrigin: true,
       },
     },

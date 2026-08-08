@@ -5801,3 +5801,1172 @@ Your three tracks should now be:
 
 **The next thing I would personally do with you is design the AI engine before writing any LLM prompt.** We should take the actual `candidates.json` + `curriculum.json` structure and define exactly how the agent selects the 4+ curriculum days, identifies weak areas, decides when a follow-up is warranted, evaluates an answer, and produces the final `summary/strengths/gaps/next`. That is the part that can turn this from a polished chatbot into a genuinely strong hackathon solution.
 
+## Prompt No.14
+
+**AI Tool: Chatgpt**
+
+**Author: Yash Palkar** 
+
+### Prompt
+so frontend has been done for now , and we are starting with backend now so give me a prompt for cursor based on this 
+
+Build the backend for our hackathon AI Interview Agent.
+
+IMPORTANT:
+Do NOT implement the LLM/AI logic yet.
+First build and test the API contract and interview session infrastructure.
+
+## TECH STACK
+
+Python
+FastAPI
+Pydantic
+Uvicorn
+
+Keep dependencies minimal.
+
+## API CONTRACT
+
+Expose exactly:
+
+POST /api/interview
+
+No authentication.
+
+The endpoint must maintain interview state using sessionId.
+
+INITIAL REQUEST:
+
+{
+"sessionId": "abc-123",
+"candidate": { ...raw candidate.json object... }
+}
+
+Response:
+
+{
+"reply": "Welcome. Let's begin your interview.",
+"done": false
+}
+
+SUBSEQUENT REQUEST:
+
+{
+"sessionId": "abc-123",
+"message": "Candidate's latest answer"
+}
+
+Response:
+
+{
+"reply": "...",
+"done": false
+}
+
+FINAL RESPONSE:
+
+{
+"reply": "Interview completed.",
+"done": true,
+"feedback": {
+"summary": "...",
+"strengths": [],
+"gaps": [],
+"next": []
+}
+}
+
+## SESSION MANAGEMENT
+
+Create an in-memory session store initially.
+
+Each session should contain at minimum:
+
+sessionId
+candidate
+conversation history
+question count
+interview state
+
+Use sessionId to retrieve the same session on every request.
+
+Do NOT use a database yet.
+
+We can add persistence later only if necessary.
+
+## CANDIDATE
+
+The candidate object received from the frontend must be the RAW candidate.json structure.
+
+Do not require the frontend CandidateViewModel.
+
+Load/validate the supplied candidate schema.
+
+## CURRICULUM
+
+Load the supplied curriculum.json.
+
+Create a clean service for accessing curriculum information.
+
+Do not implement sophisticated retrieval yet.
+
+## MOCK INTERVIEW ENGINE
+
+Before adding an LLM, implement a deterministic mock interview engine.
+
+It should:
+
+1. Start an interview.
+2. Ask a question.
+3. Accept an answer.
+4. Store the answer in conversation history.
+5. Return another question.
+6. Continue for at least 8 questions.
+7. Finish with done=true and feedback.
+
+Make sure the question sequence spans at least 4 curriculum days.
+
+Do NOT make the mock questions identical for every candidate if simple candidate-specific selection can be implemented from the supplied data.
+
+## ARCHITECTURE
+
+backend/
+├── app/
+│   ├── main.py
+│   ├── api/
+│   │   └── interview\.py
+│   ├── schemas/
+│   │   └── interview\.py
+│   ├── services/
+│   │   ├── session.py
+│   │   ├── candidate.py
+│   │   └── curriculum.py
+│   ├── interview/
+│   │   └── engine.py
+│   └── data/
+│       ├── candidates.json
+│       └── curriculum.json
+│
+├── requirements.txt
+└── .env.example
+
+Keep business logic out of the FastAPI route.
+
+## CORS
+
+Allow the Vite frontend during development.
+
+For example localhost:5173.
+
+## ERROR HANDLING
+
+Return sensible HTTP errors for:
+
+- missing sessionId
+- unknown sessionId
+- invalid candidate
+- missing message
+- malformed request
+
+Do not expose internal stack traces.
+
+## TESTING
+
+Create basic tests for:
+
+1. Start interview
+2. Continue interview
+3. Same sessionId maintains history
+4. Unknown sessionId
+5. Interview completion
+6. Final feedback structure
+
+Also verify:
+
+POST /api/interview
+
+works with curl/Postman.
+
+IMPORTANT:
+Do not implement OpenAI/Gemini/Claude calls yet.
+
+The immediate goal is to prove:
+
+React
+↓
+POST /api/interview
+↓
+FastAPI
+↓
+Session state
+↓
+Mock interviewer
+↓
+JSON response
+↓
+React
+
+### Outcome
+Yes. Your prompt is already good, but for Cursor I would make it **more explicit about implementation boundaries, validation, tests, and not touching the frontend**. That reduces the chance that the agent over-engineers the backend.
+
+Also, because this is the first backend pass, I strongly recommend asking Cursor to **inspect the supplied `candidates.json`, `curriculum.json`, and technical specification before writing schemas**. That prevents it from inventing fields.
+
+## Paste this into Cursor Agent
+
+```text
+You are the backend engineer for our 48-hour hackathon project.
+
+We are building an AI-powered adaptive technical interviewer.
+
+IMPORTANT:
+The frontend is already implemented.
+
+Your job is to build ONLY the backend.
+
+DO NOT modify the frontend.
+DO NOT implement any real LLM/AI calls yet.
+DO NOT add authentication.
+DO NOT add a database.
+DO NOT add unnecessary dependencies.
+
+The immediate goal is to prove this flow end-to-end:
+
+React frontend
+    ↓
+POST /api/interview
+    ↓
+FastAPI
+    ↓
+Session state
+    ↓
+Deterministic mock interviewer
+    ↓
+JSON response
+    ↓
+React frontend
+
+
+==================================================
+PHASE 0 — INSPECT THE PROVIDED FILES
+==================================================
+
+Before writing code:
+
+1. Inspect the supplied:
+   - candidates.json
+   - curriculum.json
+   - technical specification / project requirements
+
+2. Determine their ACTUAL schemas and field names.
+
+3. Do NOT invent candidate fields.
+4. Do NOT transform the candidate into the frontend CandidateViewModel.
+5. The API must accept the RAW candidate.json object supplied by the frontend.
+
+6. Determine the actual curriculum structure from curriculum.json.
+
+If any required structure is ambiguous, document the assumption instead of silently inventing fields.
+
+==================================================
+TECH STACK
+==================================================
+
+Use:
+
+- Python
+- FastAPI
+- Pydantic
+- Uvicorn
+- pytest
+- httpx if required for FastAPI TestClient
+
+Keep dependencies minimal.
+
+Use Python type hints throughout.
+
+Do not introduce:
+- LangChain
+- LangGraph
+- OpenAI SDK
+- Gemini SDK
+- Anthropic SDK
+- vector databases
+- PostgreSQL
+- Redis
+- SQLAlchemy
+- Docker unless absolutely necessary
+
+We will add AI integration later.
+
+==================================================
+PROJECT STRUCTURE
+==================================================
+
+Create:
+
+backend/
+│
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   │
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── interview.py
+│   │
+│   ├── schemas/
+│   │   ├── __init__.py
+│   │   └── interview.py
+│   │
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── session.py
+│   │   ├── candidate.py
+│   │   └── curriculum.py
+│   │
+│   ├── interview/
+│   │   ├── __init__.py
+│   │   └── engine.py
+│   │
+│   └── data/
+│       ├── candidates.json
+│       └── curriculum.json
+│
+├── tests/
+│   ├── __init__.py
+│   └── test_interview.py
+│
+├── requirements.txt
+├── .env.example
+└── README.md
+
+
+==================================================
+API CONTRACT
+==================================================
+
+Expose exactly:
+
+POST /api/interview
+
+No authentication.
+
+The endpoint must maintain interview state using sessionId.
+
+------------------------------------------
+INITIAL REQUEST
+------------------------------------------
+
+Request:
+
+{
+  "sessionId": "abc-123",
+  "candidate": {
+    "...raw candidate.json object..."
+  }
+}
+
+Response:
+
+{
+  "reply": "Welcome. Let's begin your interview.",
+  "done": false
+}
+
+
+------------------------------------------
+SUBSEQUENT REQUEST
+------------------------------------------
+
+Request:
+
+{
+  "sessionId": "abc-123",
+  "message": "Candidate's latest answer"
+}
+
+Response:
+
+{
+  "reply": "...",
+  "done": false
+}
+
+
+------------------------------------------
+FINAL RESPONSE
+------------------------------------------
+
+Response:
+
+{
+  "reply": "Interview completed.",
+  "done": true,
+  "feedback": {
+    "summary": "...",
+    "strengths": [],
+    "gaps": [],
+    "next": []
+  }
+}
+
+
+IMPORTANT:
+
+Keep the public API contract exactly as specified.
+
+Do not add unnecessary response fields.
+
+Do not change:
+- sessionId
+- candidate
+- message
+- reply
+- done
+- feedback
+- summary
+- strengths
+- gaps
+- next
+
+
+==================================================
+REQUEST VALIDATION
+==================================================
+
+The endpoint accepts two valid request shapes.
+
+START:
+
+{
+  "sessionId": "...",
+  "candidate": {...}
+}
+
+CONTINUE:
+
+{
+  "sessionId": "...",
+  "message": "..."
+}
+
+A request should not need both candidate and message.
+
+Validate the request using Pydantic.
+
+Handle sensible errors for:
+
+1. Missing sessionId
+2. Empty sessionId
+3. Invalid candidate
+4. Missing message on continuation
+5. Empty message
+6. Unknown sessionId
+7. Malformed JSON
+
+Return appropriate HTTP status codes and clean JSON error responses.
+
+Do not expose Python stack traces to the client.
+
+
+==================================================
+SESSION MANAGEMENT
+==================================================
+
+Implement an in-memory session store.
+
+DO NOT use a database.
+
+Each session must contain at minimum:
+
+- sessionId
+- candidate
+- conversation history
+- question count
+- interview state
+
+A reasonable internal representation is:
+
+InterviewSession
+    ├── session_id
+    ├── candidate
+    ├── conversation
+    ├── question_count
+    └── state
+
+Possible states:
+
+- active
+- completed
+
+Use sessionId to retrieve the same session for every request.
+
+The session store should be isolated inside:
+
+services/session.py
+
+Do not put session logic directly inside the FastAPI route.
+
+
+==================================================
+CANDIDATE SERVICE
+==================================================
+
+Create:
+
+services/candidate.py
+
+Responsibilities:
+
+- validate the raw candidate object
+- expose useful candidate information to the interview engine
+- keep the raw candidate available in session state
+
+IMPORTANT:
+
+The frontend sends the RAW candidate.json structure.
+
+Do NOT require the frontend's CandidateViewModel.
+
+Do NOT make the frontend transform the candidate.
+
+If candidate.json contains nested structures, preserve them.
+
+Use the actual candidate schema found in the supplied file.
+
+
+==================================================
+CURRICULUM SERVICE
+==================================================
+
+Create:
+
+services/curriculum.py
+
+Responsibilities:
+
+- load curriculum.json
+- validate/load it safely
+- expose curriculum information to the interview engine
+- provide access to curriculum days/topics/modules
+
+Do not implement vector search, embeddings, RAG, or sophisticated retrieval.
+
+For now, simple deterministic access is enough.
+
+
+==================================================
+MOCK INTERVIEW ENGINE
+==================================================
+
+Create:
+
+interview/engine.py
+
+This is a deterministic replacement for the future AI interviewer.
+
+DO NOT call any LLM.
+
+The engine must:
+
+1. Start an interview.
+2. Generate the first question.
+3. Accept candidate answers.
+4. Store every answer in conversation history.
+5. Generate the next question.
+6. Continue for AT LEAST 8 questions.
+7. Cover AT LEAST 4 curriculum days.
+8. Finish with done=true.
+9. Return final feedback.
+
+The interview must be deterministic so that tests are reliable.
+
+Do not make every candidate receive exactly the same interview if
+simple candidate-specific selection can be derived from the supplied
+candidate data.
+
+For example, if the supplied candidate structure provides useful
+learning signals such as completed days, attempts, skipped areas,
+or similar information, use those signals for simple deterministic
+question selection.
+
+Do NOT build sophisticated AI reasoning yet.
+
+The goal is only to create a realistic mock engine whose interface
+can later be replaced by an LLM-based implementation.
+
+
+==================================================
+CONVERSATION HISTORY
+==================================================
+
+Store conversation history inside the session.
+
+Represent messages clearly, for example:
+
+{
+  "role": "interviewer",
+  "content": "..."
+}
+
+{
+  "role": "candidate",
+  "content": "..."
+}
+
+The engine must receive the previous conversation when deciding
+which mock question comes next.
+
+The history must remain associated with the sessionId.
+
+
+==================================================
+INTERVIEW FLOW
+==================================================
+
+Implement this behavior:
+
+START:
+
+POST /api/interview
+
+{
+  "sessionId": "abc-123",
+  "candidate": {...}
+}
+
+↓
+
+Create session
+
+↓
+
+Generate question 1
+
+↓
+
+Return:
+
+{
+  "reply": "...",
+  "done": false
+}
+
+
+CONTINUE:
+
+POST /api/interview
+
+{
+  "sessionId": "abc-123",
+  "message": "candidate answer"
+}
+
+↓
+
+Retrieve session
+
+↓
+
+Store candidate answer
+
+↓
+
+Increment question count
+
+↓
+
+Generate next question
+
+↓
+
+Return:
+
+{
+  "reply": "...",
+  "done": false
+}
+
+
+AFTER AT LEAST 8 QUESTIONS:
+
+↓
+
+Generate final feedback
+
+↓
+
+Mark session completed
+
+↓
+
+Return:
+
+{
+  "reply": "Interview completed.",
+  "done": true,
+  "feedback": {
+    "summary": "...",
+    "strengths": [],
+    "gaps": [],
+    "next": []
+  }
+}
+
+
+==================================================
+FEEDBACK
+==================================================
+
+For now feedback is deterministic/mock.
+
+It should be structurally valid and based at least loosely on the
+candidate/interview data.
+
+Required fields:
+
+feedback.summary
+feedback.strengths
+feedback.gaps
+feedback.next
+
+Use arrays for strengths, gaps, and next.
+
+Do not call an LLM.
+
+Later we will replace this implementation with an AI evaluator.
+
+
+==================================================
+FASTAPI ROUTE
+==================================================
+
+Create:
+
+api/interview.py
+
+The route should be thin.
+
+It should roughly perform:
+
+request validation
+    ↓
+session lookup/create
+    ↓
+candidate/curriculum services
+    ↓
+interview engine
+    ↓
+response
+
+DO NOT put business logic into the route.
+
+The route should delegate to services/engine.
+
+
+==================================================
+MAIN APPLICATION
+==================================================
+
+Create:
+
+app/main.py
+
+Configure:
+
+FastAPI application
+
+POST /api/interview
+
+CORS
+
+Development frontend origin:
+
+http://localhost:5173
+
+Allow the Vite frontend to communicate with the API.
+
+Do not use wildcard CORS unless necessary.
+
+
+==================================================
+ERROR HANDLING
+==================================================
+
+Return clean API errors.
+
+Examples:
+
+Unknown session:
+
+HTTP 404
+
+{
+  "detail": "Unknown sessionId"
+}
+
+Invalid request:
+
+HTTP 422
+
+FastAPI/Pydantic validation is acceptable.
+
+Completed session:
+
+Return a sensible error if another answer is submitted after
+the interview is already completed.
+
+
+==================================================
+TESTING
+==================================================
+
+Create tests using pytest and FastAPI's test client.
+
+At minimum test:
+
+1. Start interview
+
+POST /api/interview
+
+with:
+
+sessionId + candidate
+
+Expected:
+- HTTP 200
+- reply exists
+- done == false
+
+
+2. Continue interview
+
+Send the same sessionId with message.
+
+Expected:
+- HTTP 200
+- reply exists
+- done == false
+
+
+3. Session persistence
+
+Send multiple requests using the same sessionId.
+
+Verify:
+- conversation history grows
+- question count increases
+- state remains active until completion
+
+
+4. Unknown sessionId
+
+Send:
+
+{
+  "sessionId": "does-not-exist",
+  "message": "hello"
+}
+
+Expected:
+- HTTP 404
+
+
+5. Interview completion
+
+Continue a session until the minimum question count is reached.
+
+Verify:
+- done == true
+- feedback exists
+- feedback.summary exists
+- feedback.strengths is a list
+- feedback.gaps is a list
+- feedback.next is a list
+
+
+6. Missing message
+
+Send a continuation request without message.
+
+Expected:
+- validation error
+
+
+7. Invalid candidate
+
+Send malformed candidate data.
+
+Expected:
+- validation error
+
+
+==================================================
+MANUAL API VERIFICATION
+==================================================
+
+After implementation, verify the API manually.
+
+Run:
+
+uvicorn app.main:app --reload
+
+Then test:
+
+POST http://localhost:8000/api/interview
+
+using curl or the FastAPI Swagger UI.
+
+Also verify:
+
+http://localhost:8000/docs
+
+The endpoint must appear there.
+
+Document the exact commands in README.md.
+
+
+==================================================
+ENVIRONMENT
+==================================================
+
+Create:
+
+.env.example
+
+For now there should be NO LLM API key.
+
+If environment variables are needed, document them.
+
+Do not hardcode secrets.
+
+
+==================================================
+CODE QUALITY
+==================================================
+
+Follow these rules:
+
+- Python type hints
+- small focused functions
+- clear naming
+- no unnecessary abstractions
+- no duplicated business logic
+- no global mutable state except the intentional in-memory session store
+- keep route handlers thin
+- separate schemas, services, session management and interview engine
+- clear comments only where useful
+
+Do not over-engineer.
+
+This is a 48-hour hackathon MVP.
+
+
+==================================================
+IMPORTANT DEVELOPMENT RULE
+==================================================
+
+Implement this in stages.
+
+STAGE 1:
+Inspect files and report the discovered candidate/curriculum schemas.
+
+STAGE 2:
+Create project structure and dependencies.
+
+STAGE 3:
+Implement Pydantic schemas.
+
+STAGE 4:
+Implement curriculum and candidate services.
+
+STAGE 5:
+Implement in-memory session manager.
+
+STAGE 6:
+Implement deterministic mock interview engine.
+
+STAGE 7:
+Implement POST /api/interview.
+
+STAGE 8:
+Implement tests.
+
+STAGE 9:
+Run tests and fix failures.
+
+STAGE 10:
+Run the API and manually verify the endpoint.
+
+Do NOT jump directly to writing the entire application.
+
+After each stage, briefly report:
+- files changed
+- what was implemented
+- tests/status
+- anything that remains
+
+MOST IMPORTANT:
+DO NOT IMPLEMENT OPENAI, GEMINI, CLAUDE, LANGCHAIN, OR ANY OTHER LLM INTEGRATION.
+
+We will add the real AI interviewer only after the API contract,
+session management, mock engine, and tests are working correctly.
+```
+
+## Why I changed your original prompt
+
+There are three important improvements.
+
+### 1. Tell Cursor to inspect the JSON first
+
+This is critical because you explicitly said:
+
+> raw candidate.json object
+
+So don't let Cursor invent:
+
+```python
+class Candidate(BaseModel):
+    name: str
+    role: str
+    experience: int
+```
+
+unless those fields actually exist.
+
+You want:
+
+```text
+actual candidates.json
+       ↓
+Pydantic validation
+       ↓
+session
+```
+
+---
+
+### 2. Make the route thin
+
+You don't want:
+
+```text
+interview.py
+ ├── session logic
+ ├── candidate logic
+ ├── curriculum logic
+ ├── question generation
+ ├── feedback
+ └── validation
+```
+
+You want:
+
+```text
+POST /api/interview
+       │
+       ▼
+SessionService
+       │
+       ▼
+CandidateService
+       │
+       ▼
+CurriculumService
+       │
+       ▼
+InterviewEngine
+```
+
+That will make replacing the mock engine with the real AI engine much easier.
+
+---
+
+### 3. Build the mock engine as if it were the real AI engine
+
+This is the most important architectural decision.
+
+Today:
+
+```text
+InterviewEngine
+      ↓
+Mock questions
+```
+
+Later:
+
+```text
+InterviewEngine
+      ↓
+AI Interview Agent
+      ↓
+LLM
+```
+
+Your API shouldn't need to change.
+
+Your frontend shouldn't need to change.
+
+Only the implementation behind the engine changes.
+
+---
+
+# What you should expect Cursor to produce
+
+At the end of this phase, you should have:
+
+```text
+React
+   │
+   │ POST /api/interview
+   ▼
+FastAPI
+   │
+   ▼
+Session Store
+   │
+   ▼
+Mock Interview Engine
+   │
+   ├── Q1
+   ├── Q2
+   ├── Q3
+   ├── Q4
+   ├── Q5
+   ├── Q6
+   ├── Q7
+   └── Q8
+   │
+   ▼
+Feedback
+   │
+   ▼
+JSON
+   │
+   ▼
+React
+```
+
+**Do not start the LLM work until this entire flow passes the tests.**
+
+Then the next phase can be:
+
+```text
+MockInterviewEngine
+        ↓
+AIInterviewEngine
+        ↓
+Candidate context
+        +
+Curriculum context
+        +
+Conversation history
+        ↓
+LLM
+        ↓
+Structured question/evaluation
+```
+
+That separation will make the second phase considerably easier.
+
