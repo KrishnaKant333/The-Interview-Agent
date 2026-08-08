@@ -1259,3 +1259,618 @@ Since you only have **48 hours**, I'd split your work like this:
 - **Only after the backend API is ready:** Wire the frontend to `/api/interview` and focus on polish, animations, and responsiveness.
 
 This approach gets a professional-looking frontend in place early, while leaving plenty of time for AI integration and debugging before submission.
+
+## Prompt no : 4
+**Ai Tool : Chatgpt**
+**Author : Krishnakant Sharma**
+
+### Prompt : 
+ive installed and set up the required files, tell me where to proceed next and what to create/ which ai agent to use to start with
+
+### Outcome :
+Yep. Since the **Vite + React environment, Tailwind/shadcn, routing, and folders are already set up**, don't touch the backend yet.
+
+Your next goal should be:
+
+> **Get a complete clickable frontend prototype working with mock data before connecting the AI/API.**
+
+That gives you something demonstrable even if the backend/LLM integration breaks later.
+
+## Step 1 — Build the frontend in this order
+
+I recommend this exact sequence:
+
+```text
+1. App shell / layout
+       ↓
+2. Candidate selection
+       ↓
+3. Interview screen
+       ↓
+4. Feedback screen
+       ↓
+5. Mock interview flow
+       ↓
+6. API integration
+       ↓
+7. AI-driven behavior
+       ↓
+8. Polish
+```
+
+Don't start with the AI agent.
+
+The AI needs a UI and API contract to plug into.
+
+---
+
+# Step 2 — Start with the App Shell
+
+Create:
+
+```text
+src/
+├── components/
+│   ├── common/
+│   │   ├── Navbar.tsx
+│   │   └── PageContainer.tsx
+│   │
+│   └── ui/
+│
+├── layouts/
+│   └── MainLayout.tsx
+│
+├── pages/
+│   ├── Home.tsx
+│   ├── Interview.tsx
+│   └── Feedback.tsx
+```
+
+For now, make `MainLayout` extremely simple.
+
+You want:
+
+```text
+┌──────────────────────────────────────────┐
+│  AI Interviewer                 ● Online │
+├──────────────────────────────────────────┤
+│                                          │
+│              PAGE CONTENT                │
+│                                          │
+└──────────────────────────────────────────┘
+```
+
+Don't spend an hour making a navbar.
+
+---
+
+# Step 3 — Use an AI coding agent for the first screen
+
+### Use **Claude Code** for implementation.
+
+I'd use the agents like this:
+
+| Task                    | Agent                     |
+| ----------------------- | ------------------------- |
+| Architecture            | **ChatGPT**               |
+| Generate initial UI     | **v0**                    |
+| Implement/refactor code | **Claude Code**           |
+| Debug                   | **Claude Code + ChatGPT** |
+| AI prompts/behavior     | **ChatGPT**               |
+| Final UI polish         | **v0 + Claude Code**      |
+
+Since you're already inside the project, **Claude Code is the one I'd start with now.**
+
+---
+
+# Step 4 — Give Claude Code this prompt
+
+Don't tell it to build the entire application.
+
+Give it one controlled task:
+
+```text
+You are working on an existing React + TypeScript + Vite project.
+
+The project is an AI Technical Interview Agent for a 31-day AI engineering cohort.
+
+The frontend will eventually have three primary screens:
+
+1. Candidate Selection
+2. Technical Interview
+3. Interview Feedback
+
+For now, ONLY implement the application shell and Candidate Selection screen.
+
+Requirements:
+
+- React + TypeScript
+- TailwindCSS
+- shadcn/ui components already installed
+- React Router
+- Lucide icons
+- Do not install unnecessary dependencies
+- Do not modify the backend
+- Do not create fake API calls yet
+- Keep components reusable
+- Follow the existing src folder structure
+
+Candidate selection should display:
+- Candidate name
+- Job role
+- Years of experience
+- Education
+- Cohort completion status
+- A "Start Interview" button
+
+Use mock candidate data for now.
+
+Make the UI feel like a premium enterprise AI interview platform rather than a generic chatbot.
+
+Design:
+- modern
+- minimal
+- professional
+- responsive
+- excellent typography
+- subtle animations
+- dark-first interface
+- accessible contrast
+- avoid excessive gradients
+
+When a candidate is selected, navigate to /interview/:candidateId.
+
+Do not implement the interview logic yet.
+
+Before modifying files, inspect the existing project structure and reuse existing components where possible.
+```
+
+**Let Claude inspect the project first.**
+
+That's important.
+
+Don't let it blindly overwrite your setup.
+
+---
+
+# Step 5 — Your Candidate Card
+
+The candidate data is actually important here.
+
+The supplied candidate profiles contain things like:
+
+```text
+name
+jobRole
+yearsExperience
+education
+status
+missions
+signals
+```
+
+For example, Sarah's profile contains her completed missions and learning signals such as `commitDays`, `missionsCompleted`, and `missionsFirstTry`. 
+
+But **don't display all of that on the card**.
+
+Show:
+
+```text
+Sarah Johnson
+Senior Data Engineer
+
+9 years experience
+MS Computer Science
+
+31-Day AI Cohort
+✓ Completed
+
+[Start Interview]
+```
+
+Then we'll use the deeper information **inside the AI engine**, not clutter the UI.
+
+---
+
+# Step 6 — Then build the Interview screen
+
+After the candidate screen works, give Claude Code this:
+
+```text
+Now implement the /interview/:candidateId screen.
+
+Do not connect to the backend or LLM yet.
+
+Create a realistic technical interview interface using mock interview data.
+
+The interface should contain:
+
+- Candidate information
+- Interview progress
+- Current question number
+- AI interviewer message
+- Candidate response area
+- Send button
+- Conversation history
+- Typing/loading state
+- End interview control
+
+The interview must visually feel like a real technical interview, NOT a generic ChatGPT clone.
+
+Use reusable components:
+
+InterviewHeader
+InterviewProgress
+MessageList
+MessageBubble
+AnswerInput
+InterviewControls
+
+Create a small mock interview service so that clicking Send produces predetermined interviewer responses.
+
+Keep the architecture ready for replacing the mock service with POST /api/interview later.
+
+Do not modify unrelated files.
+```
+
+---
+
+# Step 7 — Build the Feedback screen
+
+Then:
+
+```text
+Implement /feedback/:sessionId using mock data.
+
+Create:
+
+- Interview completed header
+- Overall assessment
+- Summary
+- Strengths
+- Knowledge gaps
+- Recommended next topics
+- Curriculum day references
+- Topic-level scores
+- Restart interview button
+
+The backend will eventually return:
+
+{
+  "summary": "...",
+  "strengths": [],
+  "gaps": [],
+  "next": []
+}
+
+Design the components so this exact response can later be rendered without restructuring the page.
+
+Use reusable components and shadcn/ui.
+
+Do not connect to the API yet.
+```
+
+The final API specifically requires `summary`, `strengths`, `gaps`, and `next`, so building the feedback UI around that structure now will save you trouble later. 
+
+---
+
+# Step 8 — THEN we bring in the AI
+
+This is where your role becomes particularly important.
+
+Don't make one giant "AI Agent."
+
+I'd structure the AI side conceptually as:
+
+```text
+             Candidate
+                 │
+                 ▼
+       ┌──────────────────┐
+       │ Candidate Analyzer│
+       └────────┬─────────┘
+                │
+                ▼
+       ┌──────────────────┐
+       │ Interview Planner│
+       └────────┬─────────┘
+                │
+                ▼
+       ┌──────────────────┐
+       │    Interviewer   │
+       └────────┬─────────┘
+                │
+          Candidate Answer
+                │
+                ▼
+       ┌──────────────────┐
+       │ Answer Evaluator │
+       └────────┬─────────┘
+                │
+                ▼
+       ┌──────────────────┐
+       │ Difficulty/Topic │
+       │    Controller    │
+       └────────┬─────────┘
+                │
+                ▼
+           Next Question
+```
+
+But **don't implement all five agents as separate LLM calls**.
+
+That will waste your 48 hours and API credits.
+
+Instead, use **one stateful interview agent/workflow** with these logical stages.
+
+---
+
+# The most important AI logic
+
+Your agent should first look at:
+
+### Candidate
+
+```text
+jobRole
+experience
+education
+completed missions
+failed missions
+skipped topics
+attempt counts
+learning signals
+```
+
+### Curriculum
+
+The curriculum is organized into 8 modules, including Embeddings & Vector Search, LLM Core/Prompting, Chatbot Application Build, Agentic AI & MCP, and Evaluation/Security/Deployment. 
+
+Then create an interview plan.
+
+For example:
+
+```json
+{
+  "questions": [
+    {
+      "day": 7,
+      "topic": "Embeddings",
+      "difficulty": "medium"
+    },
+    {
+      "day": 10,
+      "topic": "Retrieval",
+      "difficulty": "hard"
+    },
+    {
+      "day": 12,
+      "topic": "Prompt Engineering",
+      "difficulty": "medium"
+    }
+  ]
+}
+```
+
+Then the interview actually begins.
+
+---
+
+# Very important: exploit the candidate data
+
+This is where you can differentiate yourselves.
+
+Suppose:
+
+```text
+Day 7 → passed, 1 attempt
+Day 8 → passed, 1 attempt
+Day 10 → passed, 4 attempts
+Day 12 → passed, 5 attempts
+Day 22 → passed, 2 attempts
+```
+
+The interviewer shouldn't treat all topics equally.
+
+It should think:
+
+```text
+Strong:
+Day 7
+Day 8
+
+Potential weakness:
+Day 10
+Day 12
+
+Probe:
+Day 12
+```
+
+Then ask progressively deeper questions.
+
+The supplied candidate data explicitly provides attempt counts and skipped/failed missions, making this personalization possible. 
+
+---
+
+# Your 8-question interview
+
+I'd implement this structure:
+
+```text
+Q1 — Warm-up
+       ↓
+Q2 — Core concept
+       ↓
+Q3 — Deeper concept
+       ↓
+Q4 — Application
+       ↓
+Q5 — Follow-up based on answer
+       ↓
+Q6 — Architecture/scenario
+       ↓
+Q7 — Weak-area probe
+       ↓
+Q8 — Final challenging question
+       ↓
+Feedback
+```
+
+This guarantees the minimum **8 questions across at least 4 curriculum days** required by the challenge. 
+
+---
+
+# How the adaptive part should work
+
+Imagine:
+
+**Interviewer:**
+
+> Explain how embeddings are used in a RAG system.
+
+Candidate:
+
+> They convert text into vectors so we can search similar information.
+
+Don't immediately jump to another topic.
+
+Agent:
+
+> Good. You mentioned similarity search. What would happen if two chunks contain similar words but have different semantic meanings?
+
+Now the candidate answers.
+
+The agent evaluates that answer.
+
+If strong:
+
+```text
+difficulty += 1
+```
+
+If weak:
+
+```text
+difficulty -= 1
+```
+
+And the next question changes accordingly.
+
+**That's your actual "AI interviewer."**
+
+---
+
+# Where I'd put this code
+
+Eventually:
+
+```text
+backend/
+│
+├── agents/
+│   ├── interview_agent.py
+│   ├── planner.py
+│   ├── evaluator.py
+│   └── feedback.py
+│
+├── services/
+│   ├── curriculum.py
+│   ├── candidates.py
+│   └── llm.py
+│
+└── schemas/
+    ├── interview.py
+    └── feedback.py
+```
+
+Your frontend shouldn't know anything about how the AI reasons.
+
+It only knows:
+
+```text
+POST /api/interview
+```
+
+The technical specification requires exactly that endpoint and uses `sessionId` to maintain the interview state. 
+
+---
+
+# So, RIGHT NOW
+
+Don't touch LangGraph or prompts yet.
+
+Do this:
+
+### 🟢 You
+
+**1. Run Claude Code**
+
+↓
+
+**2. Give it the Candidate Selection prompt above**
+
+↓
+
+**3. Test `/`**
+
+↓
+
+**4. Build Interview screen**
+
+↓
+
+**5. Build Feedback screen**
+
+↓
+
+**6. Make the complete mock flow work**
+
+```text
+Home
+ ↓
+Select Sarah
+ ↓
+Interview
+ ↓
+8 mock questions
+ ↓
+Feedback
+```
+
+### 🟡 Meanwhile your other member
+
+Should start building:
+
+```text
+FastAPI
+ ↓
+POST /api/interview
+ ↓
+sessionId handling
+ ↓
+candidate parsing
+ ↓
+curriculum parsing
+```
+
+### 🔴 Then we connect them
+
+```text
+React
+  │
+  │ POST /api/interview
+  ▼
+FastAPI
+  │
+  ▼
+Interview Agent
+  │
+  ▼
+LLM
+```
+
+**That's the point where I'd help you build the actual AI interviewer prompts/state machine.**
+
+And one thing I'd strongly recommend: **don't let Claude Code decide your entire architecture.** Let it write the components, but keep the interview state, API contract, and adaptive logic under your control. That's the part the judges are actually evaluating.
+ 
