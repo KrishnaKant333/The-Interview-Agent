@@ -69,7 +69,10 @@ class GeminiLLMService(LLMService):
             "response_mime_type": "application/json",
             "response_schema": cleaned_schema,
             "temperature": 0.4,
+            "max_output_tokens": 1024,
         }
+        if hasattr(types, "ThinkingConfig"):
+            config_kwargs["thinking_config"] = types.ThinkingConfig(thinking_budget=512)
         if system_instruction:
             config_kwargs["system_instruction"] = system_instruction
 
@@ -82,6 +85,27 @@ class GeminiLLMService(LLMService):
         except Exception as exc:
             logger.exception("Gemini API call failed")
             raise LLMError("Gemini API call failed.") from exc
+
+        finish_reason = None
+        if getattr(response, "candidates", None) and len(response.candidates) > 0:
+            finish_reason = getattr(response.candidates[0], "finish_reason", None)
+
+        usage = getattr(response, "usage_metadata", None)
+        prompt_tokens = getattr(usage, "prompt_token_count", None) if usage else None
+        output_tokens = getattr(usage, "candidates_token_count", None) if usage else None
+        thoughts_tokens = getattr(usage, "thoughts_token_count", None) if usage else None
+        total_tokens = getattr(usage, "total_token_count", None) if usage else None
+
+        logger.info(
+            "Gemini structured response diagnostic: model=%s, finish_reason=%s, "
+            "prompt_tokens=%s, output_tokens=%s, thoughts_tokens=%s, total_tokens=%s",
+            self._settings.ai_model,
+            finish_reason,
+            prompt_tokens,
+            output_tokens,
+            thoughts_tokens,
+            total_tokens,
+        )
 
         parsed = getattr(response, "parsed", None)
         if parsed is not None:
