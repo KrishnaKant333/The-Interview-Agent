@@ -363,3 +363,50 @@ class TestAdaptiveTurnFlow:
                 assert isinstance(feedback["gaps"], list)
                 assert isinstance(feedback["next"], list)
 
+    def test_adaptive_turn_context_reduction(self, sarah_candidate: Candidate) -> None:
+        session = InterviewSession(session_id="test-context-reduction", candidate=sarah_candidate)
+        llm = _make_fake_llm(_build_fake_turn_result(10, False))
+
+        start_interview(session, llm=llm)
+        continue_interview(session, "Answer turn 1", llm=llm)
+
+        # Inspect prompt passed to fake LLM during turn 1
+        turn_calls = [call for call in llm.calls if call[0] is InterviewTurnResult]
+        assert len(turn_calls) == 1
+        prompt_text = turn_calls[0][1]
+
+        # Verify that prompt includes Day 29 and Day 10 details, but NOT all 31 days (e.g. Day 31)
+        assert "Day 29" in prompt_text
+        assert "Day 10" in prompt_text
+        assert "Day 31:" not in prompt_text
+
+    def test_single_attempt_immediate_fallback_on_validation_failure(self, sarah_candidate: Candidate) -> None:
+        session = InterviewSession(session_id="test-single-attempt-fallback", candidate=sarah_candidate)
+        
+        # Turn result with invalid curriculum day (999) to force validation failure
+        invalid_turn_result = _build_fake_turn_result(10, False)
+        invalid_turn_result.curriculum_day = 999
+
+        llm = FakeLLMService(
+            responses={
+                CandidateProfile: _build_fake_profile(),
+                InterviewPlan: _build_fake_plan(),
+                CurrentQuestion: _build_fake_first_q(),
+                InterviewTurnResult: invalid_turn_result,
+                Feedback: _build_fake_feedback(),
+            }
+        )
+
+        start_interview(session, llm=llm)
+        response = continue_interview(session, "Answer turn 1", llm=llm)
+
+        # Verify exact call count to InterviewTurnResult schema is 1 (no outer retry loop multiplier)
+        turn_calls = [call for call in llm.calls if call[0] is InterviewTurnResult]
+        assert len(turn_calls) == 1
+
+        # Verify fallback response returned cleanly
+        assert response.done is False
+        assert response.reply
+        assert len(session.evaluations) == 1
+
+

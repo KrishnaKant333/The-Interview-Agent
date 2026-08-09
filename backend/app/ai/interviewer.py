@@ -677,6 +677,8 @@ def evaluate_turn_and_generate_next(
         else "{}"
     )
 
+    relevant_days = list(dict.fromkeys([current_day, planned_day]))
+
     prompt = ADAPTIVE_TURN_USER_TEMPLATE.format(
         profile_json=profile_json,
         current_day=current_day,
@@ -694,33 +696,20 @@ def evaluate_turn_and_generate_next(
         planned_day=planned_day,
         planned_topic=planned_topic,
         planned_objective=planned_objective,
-        curriculum_detail=build_curriculum_detail(),
+        curriculum_detail=build_curriculum_detail(relevant_days),
     )
 
-    for validation_attempt in range(2):
-        try:
-            result = generate_with_retry(
-                llm,
-                prompt,
-                InterviewTurnResult,
-                system_instruction=ADAPTIVE_TURN_SYSTEM,
-            )
-            validate_turn_result(result)
-            return result
-        except LLMError:
-            logger.warning("Adaptive turn LLM failed; using fallback turn result.")
-            return _fallback_turn_result(session, candidate_answer)
-        except ValueError as exc:
-            logger.warning(
-                "Adaptive turn validation failed (attempt %s): %s",
-                validation_attempt + 1,
-                exc,
-            )
-            if validation_attempt == 1:
-                break
-
-    logger.warning("Adaptive turn invalid after retry; using fallback turn result.")
-    return _fallback_turn_result(session, candidate_answer)
+    try:
+        result = llm.generate_structured(
+            prompt,
+            InterviewTurnResult,
+            system_instruction=ADAPTIVE_TURN_SYSTEM,
+        )
+        validate_turn_result(result)
+        return result
+    except (LLMError, ValueError) as exc:
+        logger.warning("Adaptive turn LLM generation or validation failed (%s); using fallback.", exc)
+        return _fallback_turn_result(session, candidate_answer)
 
 
 def _fallback_ai_feedback(session: InterviewSession) -> Feedback:
