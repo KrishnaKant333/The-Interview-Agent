@@ -1,5 +1,19 @@
-from __future__ import annotations
-
+from app.ai.interviewer import (
+    analyze_candidate,
+    create_interview_plan,
+    evaluate_turn_and_generate_next,
+    generate_ai_feedback,
+    generate_first_question,
+)
+from app.ai.llm import LLMError, LLMService, get_llm_service
+from app.ai.schemas import CurrentQuestion
+from app.config import get_settings
+from app.interview.constants import (
+    MAX_CONSECUTIVE_FOLLOW_UPS,
+    MAX_QUESTIONS,
+    MIN_QUESTIONS,
+    MIN_UNIQUE_DAYS,
+)
 from app.schemas.interview import Candidate, Feedback, InterviewResponse
 from app.services.candidate import (
     get_difficult_missions,
@@ -10,9 +24,6 @@ from app.services.candidate import (
 )
 from app.services.curriculum import get_all_days, get_day, title_for_day
 from app.services.session import InterviewSession, SessionState
-
-MIN_QUESTIONS = 8
-MIN_UNIQUE_DAYS = 4
 
 
 def _deterministic_offset(candidate_id: str) -> int:
@@ -89,7 +100,7 @@ def _question_for_day(day_number: int, candidate: Candidate, question_index: int
 
 def _generate_feedback(session: InterviewSession) -> Feedback:
     candidate = session.candidate
-    first_name = get_first_name(candidate)
+    first_name = get_first_name(session.candidate)
     skipped = get_skipped_missions(candidate)
     difficult = get_difficult_missions(candidate)
     first_try = get_first_try_missions(candidate)
@@ -139,7 +150,43 @@ def _generate_feedback(session: InterviewSession) -> Feedback:
     )
 
 
-def start_interview(session: InterviewSession) -> InterviewResponse:
+def start_interview(
+    session: InterviewSession,
+    llm: LLMService | None = None,
+) -> InterviewResponse:
+    settings = get_settings()
+    is_ai = settings.ai_enabled or llm is not None
+
+    if is_ai:
+        if llm is None and settings.ai_enabled:
+            try:
+                llm = get_llm_service(settings)
+            except LLMError:
+                llm = None
+
+        profile = analyze_candidate(session.candidate, llm)
+        plan = create_interview_plan(session.candidate, profile, llm)
+        first_question = generate_first_question(session.candidate, profile, plan, llm)
+
+        session.candidate_profile = profile
+        session.interview_plan = plan
+        session.current_question = first_question
+        session.used_curriculum_days = [first_question.curriculum_day]
+        # planned_days is populated for backward compatibility with existing mock/session code only
+        session.planned_days = [question.curriculum_day for question in plan.questions]
+        session.plan_cursor = 1  # index of the next unused planned question
+        session.question_count = 1
+
+        first_name = get_first_name(session.candidate)
+        welcome = f"Welcome, {first_name}. Let's begin your personalized technical interview."
+        reply = f"{welcome}\n\n{first_question.text}"
+
+        session.append_message("interviewer", welcome)
+        session.append_message("interviewer", first_question.text)
+
+        return InterviewResponse(reply=reply, done=False)
+
+    # Mock mode
     first_name = get_first_name(session.candidate)
     welcome = f"Welcome, {first_name}. Let's begin your personalized technical interview."
 
@@ -154,12 +201,95 @@ def start_interview(session: InterviewSession) -> InterviewResponse:
     return InterviewResponse(reply=reply, done=False)
 
 
-def continue_interview(session: InterviewSession, message: str) -> InterviewResponse:
+def continue_interview(
+    session: InterviewSession,
+    message: str,
+    llm: LLMService | None = None,
+) -> InterviewResponse:
     if session.state == SessionState.COMPLETED:
         raise ValueError("Interview is already completed.")
 
     session.append_message("candidate", message)
 
+    settings = get_settings()
+    is_ai = settings.ai_enabled or llm is not None or session.interview_plan is not None
+
+    if is_ai:
+        if llm is None and settings.ai_enabled:
+            try:
+                llm = get_llm_service(settings)
+            except LLMError:
+                llm = None
+
+        unique_days_count = len(set(session.used_curriculum_days))
+        should_complete = (session.question_count >= MAX_QUESTIONS) or (
+            session.question_count >= MIN_QUESTIONS and unique_days_count >= MIN_UNIQUE_DAYS
+        )
+
+        if should_complete:
+            session.state = SessionState.COMPLETED
+            closing = "Interview completed."
+            session.append_message("interviewer", closing)
+            feedback = generate_ai_feedback(session, llm)
+            return InterviewResponse(
+                reply=closing,
+                done=True,
+                feedback=feedback,
+            )
+
+        turn_result = evaluate_turn_and_generate_next(session, message, llm)
+        session.evaluations.append(turn_result.evaluation)
+
+        is_follow_up = turn_result.is_follow_up
+        if is_follow_up:
+            if session.consecutive_follow_ups >= MAX_CONSECUTIVE_FOLLOW_UPS:
+                is_follow_up = False
+                session.consecutive_follow_ups = 0
+            else:
+                session.consecutive_follow_ups += 1
+        else:
+            session.consecutive_follow_ups = 0
+
+        curr_day = turn_result.curriculum_day
+        curr_obj = turn_result.objective
+        curr_purpose = turn_result.purpose
+        curr_diff = turn_result.difficulty
+
+        if len(set(session.used_curriculum_days)) < MIN_UNIQUE_DAYS:
+            if not is_follow_up and curr_day in session.used_curriculum_days:
+                uncovered_q = None
+                if session.interview_plan:
+                    for q in session.interview_plan.questions:
+                        if q.curriculum_day not in session.used_curriculum_days:
+                            uncovered_q = q
+                            break
+                if uncovered_q is not None:
+                    curr_day = uncovered_q.curriculum_day
+                    curr_obj = uncovered_q.objective
+                    curr_purpose = uncovered_q.purpose
+                    curr_diff = uncovered_q.difficulty
+
+        next_question = CurrentQuestion(
+            text=turn_result.question_text,
+            curriculum_day=curr_day,
+            objective=curr_obj,
+            purpose=curr_purpose,
+            difficulty=curr_diff,
+            is_follow_up=is_follow_up,
+            source="adaptive" if is_follow_up else "planned",
+        )
+
+        session.current_question = next_question
+        if curr_day not in session.used_curriculum_days:
+            session.used_curriculum_days.append(curr_day)
+        session.question_count += 1
+        if not is_follow_up:
+            session.plan_cursor += 1
+
+        session.append_message("interviewer", next_question.text)
+        return InterviewResponse(reply=next_question.text, done=False)
+
+    # Mock mode
     if session.question_count >= MIN_QUESTIONS:
         session.state = SessionState.COMPLETED
         closing = "Interview completed."
