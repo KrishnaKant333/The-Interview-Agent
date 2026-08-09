@@ -29,6 +29,14 @@ Instructions:
 5. high_effort_topics: missions requiring multiple attempts (include day title).
 6. skipped_topics: explicitly skipped missions only.
 7. completed_topics: passed, non-skipped missions.
-8. recommended_focus_areas: 2-4 curriculum-aligned areas to probe, prioritizing weaknesses where data supports them.
+8. recommended_focus_areas: 2-4 structured entries, each with:
+   - day: curriculum day number from candidate mission data
+   - title: exact curriculum title for that day
+   - reason: one of skipped | high_attempt | low_first_try | other
+     * skipped — only for explicitly skipped missions
+     * high_attempt — missions with multiple attempts
+     * low_first_try — passed missions that required more than one attempt
+     * other — mission days without skipped/high-attempt signals (e.g. general review)
+   Do not include days absent from candidate mission data.
 
-Keep each list item concise and specific. Reference real curriculum day titles when mentioning topics."""
+Keep prose list items concise. Reference real curriculum day titles when mentioning topics."""

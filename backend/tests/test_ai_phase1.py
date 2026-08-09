@@ -9,16 +9,20 @@ from app.ai.interviewer import (
     analyze_candidate,
     build_candidate_facts,
     create_interview_plan,
+    validate_candidate_profile,
     validate_interview_plan,
 )
 from app.ai.llm import FakeLLMService, LLMError, generate_with_retry
 from app.ai.schemas import (
-    MIN_PLAN_CURRICULUM_DAYS,
-    MIN_PLAN_QUESTIONS,
+    AnswerEvaluation,
     CandidateProfile,
+    CurrentQuestion,
+    FocusArea,
     InterviewPlan,
+    InterviewTurnResult,
     PlannedQuestion,
 )
+from app.interview.constants import MIN_QUESTIONS, MIN_UNIQUE_DAYS
 from app.schemas.interview import Candidate
 from app.services.curriculum import get_day, title_for_day
 
@@ -113,6 +117,7 @@ class TestCandidateAnalysis:
         assert any("29" in topic for topic in profile.skipped_topics)
         assert profile.potential_weaknesses
         assert any("29" in weakness or "Monitoring" in weakness for weakness in profile.potential_weaknesses)
+        assert any(area.day == 29 for area in profile.recommended_focus_areas)
 
     def test_fallback_analysis_identifies_high_effort_topics(self, alex_candidate: Candidate) -> None:
         profile = analyze_candidate(alex_candidate, llm=None)
@@ -130,8 +135,16 @@ class TestCandidateAnalysis:
             skipped_topics=["Day 29: Monitoring, Logging & Observability"],
             completed_topics=["Day 7: Embeddings Explained"],
             recommended_focus_areas=[
-                "Day 29: Monitoring, Logging & Observability",
-                "Day 12: Prompt Engineering Fundamentals",
+                FocusArea(
+                    day=29,
+                    title="Monitoring, Logging & Observability",
+                    reason="skipped",
+                ),
+                FocusArea(
+                    day=12,
+                    title="Prompt Engineering Fundamentals",
+                    reason="high_attempt",
+                ),
             ],
         )
         llm = FakeLLMService(responses={CandidateProfile: fake_profile})
@@ -155,16 +168,16 @@ class TestInterviewPlanning:
         profile = _sample_profile(sarah_candidate)
         plan = create_interview_plan(sarah_candidate, profile, llm=None)
 
-        assert plan.total_questions >= MIN_PLAN_QUESTIONS
-        assert len(plan.questions) >= MIN_PLAN_QUESTIONS
+        assert plan.total_questions >= MIN_QUESTIONS
+        assert len(plan.questions) >= MIN_QUESTIONS
 
     def test_fallback_plan_covers_minimum_curriculum_days(self, sarah_candidate: Candidate) -> None:
         profile = _sample_profile(sarah_candidate)
         plan = create_interview_plan(sarah_candidate, profile, llm=None)
 
         unique_days = {question.curriculum_day for question in plan.questions}
-        assert len(unique_days) >= MIN_PLAN_CURRICULUM_DAYS
-        assert len(set(plan.curriculum_days)) >= MIN_PLAN_CURRICULUM_DAYS
+        assert len(unique_days) >= MIN_UNIQUE_DAYS
+        assert len(set(plan.curriculum_days)) >= MIN_UNIQUE_DAYS
 
     def test_plan_questions_grounded_in_curriculum(self, sarah_candidate: Candidate) -> None:
         profile = _sample_profile(sarah_candidate)
@@ -200,7 +213,7 @@ class TestInterviewPlanning:
 
         plan = create_interview_plan(sarah_candidate, profile, llm=llm)
 
-        assert plan.total_questions >= MIN_PLAN_QUESTIONS
+        assert plan.total_questions >= MIN_QUESTIONS
         validate_interview_plan(plan)
         assert len(llm.calls) == 1
 
@@ -210,7 +223,7 @@ class TestInterviewPlanning:
 
         plan = create_interview_plan(sarah_candidate, profile, llm=llm)
 
-        assert plan.total_questions >= MIN_PLAN_QUESTIONS
+        assert plan.total_questions >= MIN_QUESTIONS
         validate_interview_plan(plan)
 
 

@@ -9,10 +9,8 @@ from app.services.candidate import (
     get_skipped_missions,
 )
 from app.services.curriculum import get_all_days, get_day, title_for_day
+from app.interview.constants import MIN_QUESTIONS, MIN_UNIQUE_DAYS
 from app.services.session import InterviewSession, SessionState
-
-MIN_QUESTIONS = 8
-MIN_UNIQUE_DAYS = 4
 
 
 def _deterministic_offset(candidate_id: str) -> int:

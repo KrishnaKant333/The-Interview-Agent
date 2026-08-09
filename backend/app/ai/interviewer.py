@@ -11,12 +11,12 @@ from app.ai.prompts.candidate_analysis import (
 )
 from app.ai.prompts.planning import PLANNING_SYSTEM, PLANNING_USER_TEMPLATE
 from app.ai.schemas import (
-    MIN_PLAN_CURRICULUM_DAYS,
-    MIN_PLAN_QUESTIONS,
     CandidateProfile,
+    FocusArea,
     InterviewPlan,
     PlannedQuestion,
 )
+from app.interview.constants import MIN_QUESTIONS, MIN_UNIQUE_DAYS
 from app.schemas.interview import Candidate
 from app.services.candidate import (
     get_completed_days,
@@ -157,20 +157,40 @@ def _fallback_candidate_profile(candidate: Candidate, facts: dict[str, Any]) -> 
         f"Day {day}: {title_for_day(day)}" for day in facts["completed_days"]
     ]
 
-    focus_areas: list[str] = []
+    focus_areas: list[FocusArea] = []
     if facts["skipped_missions"]:
         skipped = facts["skipped_missions"][0]
-        focus_areas.append(f"Day {skipped['day']}: {skipped['title']}")
+        focus_areas.append(
+            FocusArea(day=skipped["day"], title=skipped["title"], reason="skipped")
+        )
     if facts["high_attempt_missions"]:
         difficult = facts["high_attempt_missions"][0]
-        focus_areas.append(f"Day {difficult['day']}: {difficult['title']}")
+        focus_areas.append(
+            FocusArea(
+                day=difficult["day"],
+                title=difficult["title"],
+                reason="high_attempt",
+            )
+        )
     if not focus_areas and facts["completed_days"]:
-        focus_areas.append(f"Day {facts['completed_days'][0]}: {title_for_day(facts['completed_days'][0])}")
+        day_number = facts["completed_days"][0]
+        focus_areas.append(
+            FocusArea(
+                day=day_number,
+                title=title_for_day(day_number),
+                reason="other",
+            )
+        )
     if len(focus_areas) < 2 and facts["mission_days"]:
         extra_day = facts["mission_days"][-1]
-        extra = f"Day {extra_day}: {title_for_day(extra_day)}"
-        if extra not in focus_areas:
-            focus_areas.append(extra)
+        if not any(area.day == extra_day for area in focus_areas):
+            focus_areas.append(
+                FocusArea(
+                    day=extra_day,
+                    title=title_for_day(extra_day),
+                    reason="other",
+                )
+            )
 
     return CandidateProfile(
         role=candidate.member.jobRole,
@@ -184,6 +204,62 @@ def _fallback_candidate_profile(candidate: Candidate, facts: dict[str, Any]) -> 
     )
 
 
+def validate_candidate_profile(profile: CandidateProfile, facts: dict[str, Any]) -> None:
+    """Ensure LLM profile curriculum references are grounded in deterministic facts."""
+    valid_days = _valid_curriculum_days()
+    skipped_days = {mission["day"] for mission in facts["skipped_missions"]}
+    high_attempt_days = {mission["day"] for mission in facts["high_attempt_missions"]}
+    first_try_days = {mission["day"] for mission in facts["first_try_missions"]}
+    mission_days = set(facts["mission_days"])
+    missions_by_day = {mission["day"]: mission for mission in facts["missions"]}
+
+    for area in profile.recommended_focus_areas:
+        if area.day not in valid_days:
+            raise ValueError(f"Focus area references invalid curriculum day: {area.day}")
+
+        curriculum_day = get_day(area.day)
+        if curriculum_day is None:
+            raise ValueError(f"Curriculum day not found: {area.day}")
+
+        if area.title != curriculum_day.title:
+            raise ValueError(
+                f"Focus area title must match curriculum title for day {area.day}."
+            )
+
+        if area.day not in mission_days:
+            raise ValueError(
+                f"Focus area day {area.day} is not supported by candidate mission data."
+            )
+
+        if area.reason == "skipped":
+            if area.day not in skipped_days:
+                raise ValueError(
+                    f"Focus area reason 'skipped' unsupported for day {area.day}."
+                )
+        elif area.reason == "high_attempt":
+            if area.day not in high_attempt_days:
+                raise ValueError(
+                    f"Focus area reason 'high_attempt' unsupported for day {area.day}."
+                )
+        elif area.reason == "low_first_try":
+            if area.day in skipped_days:
+                raise ValueError(
+                    f"Focus area reason 'low_first_try' unsupported for skipped day {area.day}."
+                )
+            if area.day in first_try_days:
+                raise ValueError(
+                    f"Focus area reason 'low_first_try' unsupported for day {area.day}."
+                )
+            mission = missions_by_day[area.day]
+            attempts = mission.get("attempts") or 1
+            if not mission.get("passed") or attempts <= 1:
+                raise ValueError(
+                    f"Focus area reason 'low_first_try' unsupported for day {area.day}."
+                )
+        elif area.reason != "other":
+            raise ValueError(f"Unknown focus area reason: {area.reason}")
+
+
 def analyze_candidate(candidate: Candidate, llm: LLMService | None = None) -> CandidateProfile:
     facts = build_candidate_facts(candidate)
     if llm is None:
@@ -193,16 +269,30 @@ def analyze_candidate(candidate: Candidate, llm: LLMService | None = None) -> Ca
         candidate_facts=json.dumps(facts, indent=2),
         curriculum_summary=build_curriculum_summary(),
     )
-    try:
-        return generate_with_retry(
-            llm,
-            prompt,
-            CandidateProfile,
-            system_instruction=CANDIDATE_ANALYSIS_SYSTEM,
-        )
-    except LLMError:
-        logger.warning("Candidate analysis LLM failed; using rule-based fallback.")
-        return _fallback_candidate_profile(candidate, facts)
+    for validation_attempt in range(2):
+        try:
+            profile = generate_with_retry(
+                llm,
+                prompt,
+                CandidateProfile,
+                system_instruction=CANDIDATE_ANALYSIS_SYSTEM,
+            )
+            validate_candidate_profile(profile, facts)
+            return profile
+        except LLMError:
+            logger.warning("Candidate analysis LLM failed; using rule-based fallback.")
+            return _fallback_candidate_profile(candidate, facts)
+        except ValueError as exc:
+            logger.warning(
+                "Candidate profile validation failed (attempt %s): %s",
+                validation_attempt + 1,
+                exc,
+            )
+            if validation_attempt == 1:
+                break
+
+    logger.warning("Candidate profile invalid after retry; using rule-based fallback.")
+    return _fallback_candidate_profile(candidate, facts)
 
 
 def _valid_curriculum_days() -> set[int]:
@@ -219,13 +309,13 @@ def _plan_has_required_question_types(questions: list[PlannedQuestion]) -> bool:
 def validate_interview_plan(plan: InterviewPlan) -> None:
     valid_days = _valid_curriculum_days()
     unique_plan_days = set(plan.curriculum_days)
-    if len(unique_plan_days) < MIN_PLAN_CURRICULUM_DAYS:
+    if len(unique_plan_days) < MIN_UNIQUE_DAYS:
         raise ValueError(
-            f"Plan must cover at least {MIN_PLAN_CURRICULUM_DAYS} distinct curriculum days."
+            f"Plan must cover at least {MIN_UNIQUE_DAYS} distinct curriculum days."
         )
 
     question_days = {question.curriculum_day for question in plan.questions}
-    if len(question_days) < MIN_PLAN_CURRICULUM_DAYS:
+    if len(question_days) < MIN_UNIQUE_DAYS:
         raise ValueError("Planned questions must span at least 4 distinct curriculum days.")
 
     for day_number in plan.curriculum_days:
@@ -275,21 +365,15 @@ def _fallback_interview_plan(candidate: Candidate, profile: CandidateProfile) ->
     for day in priority:
         if day in valid_days and day not in selected_days:
             selected_days.append(day)
-        if len(selected_days) >= MIN_PLAN_CURRICULUM_DAYS:
+        if len(selected_days) >= MIN_UNIQUE_DAYS:
             break
 
-    while len(selected_days) < MIN_PLAN_CURRICULUM_DAYS:
+    while len(selected_days) < MIN_UNIQUE_DAYS:
         for day in sorted(valid_days):
             if day not in selected_days:
                 selected_days.append(day)
-            if len(selected_days) >= MIN_PLAN_CURRICULUM_DAYS:
+            if len(selected_days) >= MIN_UNIQUE_DAYS:
                 break
-
-    focus_day_numbers: set[int] = set()
-    for area in profile.recommended_focus_areas:
-        for token in area.split():
-            if token.startswith("Day") and token[3:].rstrip(":").isdigit():
-                focus_day_numbers.add(int(token[3:].rstrip(":")))
 
     purposes_cycle: list[str] = [
         "concept",
@@ -310,14 +394,14 @@ def _fallback_interview_plan(candidate: Candidate, profile: CandidateProfile) ->
     )
 
     questions: list[PlannedQuestion] = []
-    for index in range(MIN_PLAN_QUESTIONS):
+    for index in range(MIN_QUESTIONS):
         if index < len(selected_days):
             day_number = selected_days[index % len(selected_days)]
         else:
             day_number = selected_days[index % len(selected_days)]
 
-        if index == 0 and focus_day_numbers:
-            day_number = next(iter(focus_day_numbers))
+        if index == 0 and profile.recommended_focus_areas:
+            day_number = profile.recommended_focus_areas[0].day
 
         curriculum_day = get_day(day_number)
         if curriculum_day is None:
@@ -358,7 +442,7 @@ def create_interview_plan(
         profile_json=profile.model_dump_json(indent=2),
         candidate_facts=json.dumps(facts, indent=2),
         curriculum_detail=build_curriculum_detail(),
-        min_days=MIN_PLAN_CURRICULUM_DAYS,
+        min_days=MIN_UNIQUE_DAYS,
     )
     try:
         plan = generate_with_retry(
