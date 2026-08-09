@@ -10460,7 +10460,6 @@ That gives you a safe working checkpoint.
 
 **After that, your next task is the real AI interviewer.** That's where we should carefully design the prompt/context/structured output and replace the mock engine without breaking the API you've just finished integrating.
 
-
 ## Prompt no : 23
 **Ai Tool : Chatgpt**
 **Author : Krishnakant Sharma**
@@ -28970,5 +28969,4 @@ So:
 **Commit → push/merge → then give Antigravity the diagnostic prompt above.**
 
 When Antigravity gives you the latency/token/truncation report, bring that report here. **Don't let it implement the optimization yet.** We'll pick the smallest 1–2 changes that give you the biggest improvement, because at this point every minute matters.
-
 
