@@ -5,22 +5,42 @@ import logging
 from typing import Any
 
 from app.ai.llm import LLMError, LLMService, generate_with_retry
+from app.ai.prompts.adaptive_turn import (
+    ADAPTIVE_TURN_SYSTEM,
+    ADAPTIVE_TURN_USER_TEMPLATE,
+)
 from app.ai.prompts.candidate_analysis import (
     CANDIDATE_ANALYSIS_SYSTEM,
     CANDIDATE_ANALYSIS_USER_TEMPLATE,
 )
+from app.ai.prompts.final_feedback import (
+    FINAL_FEEDBACK_SYSTEM,
+    FINAL_FEEDBACK_USER_TEMPLATE,
+)
+from app.ai.prompts.first_question import (
+    FIRST_QUESTION_SYSTEM,
+    FIRST_QUESTION_USER_TEMPLATE,
+)
 from app.ai.prompts.planning import PLANNING_SYSTEM, PLANNING_USER_TEMPLATE
 from app.ai.schemas import (
+    AnswerEvaluation,
     CandidateProfile,
+    CurrentQuestion,
     FocusArea,
     InterviewPlan,
+    InterviewTurnResult,
     PlannedQuestion,
 )
-from app.interview.constants import MIN_QUESTIONS, MIN_UNIQUE_DAYS
-from app.schemas.interview import Candidate
+from app.interview.constants import (
+    MAX_CONSECUTIVE_FOLLOW_UPS,
+    MIN_QUESTIONS,
+    MIN_UNIQUE_DAYS,
+)
+from app.schemas.interview import Candidate, Feedback
 from app.services.candidate import (
     get_completed_days,
     get_difficult_missions,
+    get_first_name,
     get_first_try_missions,
     get_mission_days,
     get_skipped_missions,
@@ -458,3 +478,335 @@ def create_interview_plan(
         plan = _fallback_interview_plan(candidate, profile)
         validate_interview_plan(plan)
         return plan
+
+
+def validate_current_question(
+    question: CurrentQuestion,
+    plan: InterviewPlan,
+    target_planned_q: PlannedQuestion,
+) -> None:
+    valid_days = _valid_curriculum_days()
+    if question.curriculum_day not in valid_days:
+        raise ValueError(f"Question references invalid curriculum day: {question.curriculum_day}")
+    if question.curriculum_day != target_planned_q.curriculum_day:
+        raise ValueError(
+            f"Question curriculum_day ({question.curriculum_day}) does not match planned question day ({target_planned_q.curriculum_day})."
+        )
+    curriculum_day = get_day(question.curriculum_day)
+    if curriculum_day is None:
+        raise ValueError(f"Curriculum day not found: {question.curriculum_day}")
+    if question.objective not in curriculum_day.objectives:
+        raise ValueError(
+            f"Question objective not found on curriculum day {question.curriculum_day}."
+        )
+    if not question.text or not question.text.strip():
+        raise ValueError("Question text must be a non-empty string.")
+    if question.is_follow_up:
+        raise ValueError("First question must not be a follow-up.")
+    if question.source != "planned":
+        raise ValueError("First question source must be 'planned'.")
+
+
+def _fallback_first_question(candidate: Candidate, planned_q: PlannedQuestion) -> CurrentQuestion:
+    curriculum_day = get_day(planned_q.curriculum_day)
+    day_title = curriculum_day.title if curriculum_day else f"Day {planned_q.curriculum_day}"
+    text = (
+        f"Regarding Day {planned_q.curriculum_day} ({day_title}): "
+        f"{planned_q.objective} How would you explain your approach in a technical interview?"
+    )
+    return CurrentQuestion(
+        text=text,
+        curriculum_day=planned_q.curriculum_day,
+        objective=planned_q.objective,
+        purpose=planned_q.purpose,
+        difficulty=planned_q.difficulty,
+        is_follow_up=False,
+        source="planned",
+    )
+
+
+def generate_first_question(
+    candidate: Candidate,
+    profile: CandidateProfile,
+    plan: InterviewPlan,
+    llm: LLMService | None = None,
+) -> CurrentQuestion:
+    planned_q = plan.questions[0]
+    if llm is None:
+        question = _fallback_first_question(candidate, planned_q)
+        validate_current_question(question, plan, planned_q)
+        return question
+
+    prompt = FIRST_QUESTION_USER_TEMPLATE.format(
+        profile_json=profile.model_dump_json(indent=2),
+        curriculum_day=planned_q.curriculum_day,
+        topic=planned_q.topic,
+        objective=planned_q.objective,
+        purpose=planned_q.purpose,
+        difficulty=planned_q.difficulty,
+        curriculum_detail=build_curriculum_detail([planned_q.curriculum_day]),
+    )
+
+    for validation_attempt in range(2):
+        try:
+            question = generate_with_retry(
+                llm,
+                prompt,
+                CurrentQuestion,
+                system_instruction=FIRST_QUESTION_SYSTEM,
+            )
+            validate_current_question(question, plan, planned_q)
+            return question
+        except LLMError:
+            logger.warning("First question LLM failed; using fallback question.")
+            return _fallback_first_question(candidate, planned_q)
+        except ValueError as exc:
+            logger.warning(
+                "First question validation failed (attempt %s): %s",
+                validation_attempt + 1,
+                exc,
+            )
+            if validation_attempt == 1:
+                break
+
+    logger.warning("First question invalid after retry; using fallback question.")
+    return _fallback_first_question(candidate, planned_q)
+
+
+def validate_turn_result(result: InterviewTurnResult) -> None:
+    valid_days = _valid_curriculum_days()
+    if result.curriculum_day not in valid_days:
+        raise ValueError(f"Turn question references invalid curriculum day: {result.curriculum_day}")
+    curriculum_day = get_day(result.curriculum_day)
+    if curriculum_day is None:
+        raise ValueError(f"Curriculum day not found: {result.curriculum_day}")
+    if result.objective not in curriculum_day.objectives:
+        raise ValueError(
+            f"Turn question objective '{result.objective}' not found on day {result.curriculum_day}."
+        )
+    if not result.question_text or not result.question_text.strip():
+        raise ValueError("Turn question_text must be non-empty.")
+
+
+def _fallback_turn_result(
+    session: InterviewSession,
+    candidate_answer: str,
+) -> InterviewTurnResult:
+    words = candidate_answer.strip().split()
+    score = min(10, max(4, len(words) // 5))
+    evaluation = AnswerEvaluation(
+        correctness=score,
+        depth=score,
+        reasoning=score,
+        clarity=score,
+        strengths=["Engaged thoughtfully with the technical prompt"],
+        weaknesses=[] if score >= 7 else ["Could provide deeper architectural details"],
+        misconception=None,
+        should_follow_up=False,
+        follow_up_focus=None,
+        recommended_difficulty="intermediate",
+    )
+
+    plan = session.interview_plan
+    if plan and session.plan_cursor < len(plan.questions):
+        planned_q = plan.questions[session.plan_cursor]
+        curriculum_day = get_day(planned_q.curriculum_day)
+        topic = curriculum_day.title if curriculum_day else f"Day {planned_q.curriculum_day}"
+        question_text = (
+            f"Regarding Day {planned_q.curriculum_day} ({topic}): "
+            f"{planned_q.objective} Walk me through your approach."
+        )
+        return InterviewTurnResult(
+            evaluation=evaluation,
+            question_text=question_text,
+            curriculum_day=planned_q.curriculum_day,
+            objective=planned_q.objective,
+            purpose=planned_q.purpose,
+            difficulty=planned_q.difficulty,
+            is_follow_up=False,
+        )
+
+    day_number = session.used_curriculum_days[0] if session.used_curriculum_days else 7
+    curriculum_day = get_day(day_number)
+    topic = curriculum_day.title if curriculum_day else f"Day {day_number}"
+    obj = curriculum_day.objectives[0] if curriculum_day and curriculum_day.objectives else "Explain core concept"
+    return InterviewTurnResult(
+        evaluation=evaluation,
+        question_text=f"Regarding Day {day_number} ({topic}): {obj} How would you apply this in practice?",
+        curriculum_day=day_number,
+        objective=obj,
+        purpose="application",
+        difficulty="intermediate",
+        is_follow_up=False,
+    )
+
+
+def evaluate_turn_and_generate_next(
+    session: InterviewSession,
+    candidate_answer: str,
+    llm: LLMService | None = None,
+) -> InterviewTurnResult:
+    if llm is None:
+        return _fallback_turn_result(session, candidate_answer)
+
+    current_q = session.current_question
+    current_day = current_q.curriculum_day if current_q else 1
+    curriculum_day = get_day(current_day)
+    current_topic = curriculum_day.title if curriculum_day else f"Day {current_day}"
+    current_obj = current_q.objective if current_q else "General technical objective"
+    current_text = current_q.text if current_q else ""
+    current_purpose = current_q.purpose if current_q else "concept"
+    current_difficulty = current_q.difficulty if current_q else "intermediate"
+
+    planned_q = (
+        session.interview_plan.questions[min(session.plan_cursor, len(session.interview_plan.questions) - 1)]
+        if session.interview_plan and session.interview_plan.questions
+        else None
+    )
+    planned_day = planned_q.curriculum_day if planned_q else current_day
+    planned_day_obj = get_day(planned_day)
+    planned_topic = planned_day_obj.title if planned_day_obj else f"Day {planned_day}"
+    planned_objective = planned_q.objective if planned_q else "General objective"
+
+    recent = session.conversation[-4:] if session.conversation else []
+    recent_history = "\n".join(f"{msg.role}: {msg.content}" for msg in recent)
+
+    profile_json = (
+        session.candidate_profile.model_dump_json(indent=2)
+        if session.candidate_profile
+        else "{}"
+    )
+
+    prompt = ADAPTIVE_TURN_USER_TEMPLATE.format(
+        profile_json=profile_json,
+        current_day=current_day,
+        current_topic=current_topic,
+        current_objective=current_obj,
+        current_text=current_text,
+        current_purpose=current_purpose,
+        current_difficulty=current_difficulty,
+        candidate_answer=candidate_answer,
+        recent_history=recent_history,
+        question_count=session.question_count,
+        covered_days=len(set(session.used_curriculum_days)),
+        consecutive_follow_ups=session.consecutive_follow_ups,
+        max_follow_ups=MAX_CONSECUTIVE_FOLLOW_UPS,
+        planned_day=planned_day,
+        planned_topic=planned_topic,
+        planned_objective=planned_objective,
+        curriculum_detail=build_curriculum_detail(),
+    )
+
+    for validation_attempt in range(2):
+        try:
+            result = generate_with_retry(
+                llm,
+                prompt,
+                InterviewTurnResult,
+                system_instruction=ADAPTIVE_TURN_SYSTEM,
+            )
+            validate_turn_result(result)
+            return result
+        except LLMError:
+            logger.warning("Adaptive turn LLM failed; using fallback turn result.")
+            return _fallback_turn_result(session, candidate_answer)
+        except ValueError as exc:
+            logger.warning(
+                "Adaptive turn validation failed (attempt %s): %s",
+                validation_attempt + 1,
+                exc,
+            )
+            if validation_attempt == 1:
+                break
+
+    logger.warning("Adaptive turn invalid after retry; using fallback turn result.")
+    return _fallback_turn_result(session, candidate_answer)
+
+
+def _fallback_ai_feedback(session: InterviewSession) -> Feedback:
+    first_name = get_first_name(session.candidate)
+    evals = session.evaluations
+    unique_days = list(dict.fromkeys(session.used_curriculum_days))
+    highlighted = ", ".join(title_for_day(day) for day in unique_days[:3])
+
+    summary = (
+        f"{first_name} completed a personalized technical interview covering "
+        f"{len(unique_days)} curriculum areas, including {highlighted}."
+    )
+
+    strengths: list[str] = []
+    gaps: list[str] = []
+
+    if evals:
+        high_scores = [e for e in evals if e.correctness >= 7]
+        low_scores = [e for e in evals if e.correctness < 7]
+        for e in high_scores:
+            strengths.extend(e.strengths)
+        for e in low_scores:
+            gaps.extend(e.weaknesses)
+
+    if not strengths:
+        strengths.append(f"Completed {len(evals)} evaluated interview turns with active engagement.")
+        strengths.append(f"Demonstrated solid familiarity with curriculum day {unique_days[0] if unique_days else 1}.")
+    if not gaps:
+        gaps.append("Practice articulating architectural trade-offs with concrete examples.")
+
+    next_steps: list[str] = []
+    if session.candidate_profile and session.candidate_profile.recommended_focus_areas:
+        for area in session.candidate_profile.recommended_focus_areas[:2]:
+            next_steps.append(f"Review Day {area.day}: {area.title}")
+    next_steps.append("Build hands-on project examples to reinforce retrieval and system design concepts.")
+
+    return Feedback(
+        summary=summary,
+        strengths=strengths[:3],
+        gaps=gaps[:3],
+        next=next_steps[:3],
+    )
+
+
+def generate_ai_feedback(
+    session: InterviewSession,
+    llm: LLMService | None = None,
+) -> Feedback:
+    if llm is None:
+        return _fallback_ai_feedback(session)
+
+    evals_summary_lines: list[str] = []
+    for idx, eval_item in enumerate(session.evaluations, 1):
+        evals_summary_lines.append(
+            f"Turn {idx}: correctness={eval_item.correctness}/10, depth={eval_item.depth}/10, "
+            f"strengths={eval_item.strengths}, weaknesses={eval_item.weaknesses}, misconception={eval_item.misconception}"
+        )
+    evaluations_summary = "\n".join(evals_summary_lines) if evals_summary_lines else "No structured evaluations recorded."
+
+    full_conversation_lines = [f"{msg.role}: {msg.content}" for msg in session.conversation]
+    full_conversation = "\n".join(full_conversation_lines)
+
+    profile_json = (
+        session.candidate_profile.model_dump_json(indent=2)
+        if session.candidate_profile
+        else "{}"
+    )
+
+    prompt = FINAL_FEEDBACK_USER_TEMPLATE.format(
+        profile_json=profile_json,
+        total_questions=session.question_count,
+        covered_days=len(set(session.used_curriculum_days)),
+        evaluations_summary=evaluations_summary,
+        full_conversation=full_conversation,
+    )
+
+    try:
+        feedback = generate_with_retry(
+            llm,
+            prompt,
+            Feedback,
+            system_instruction=FINAL_FEEDBACK_SYSTEM,
+        )
+        return feedback
+    except (LLMError, ValueError) as exc:
+        logger.warning("Final feedback LLM failed (%s); using fallback feedback.", exc)
+        return _fallback_ai_feedback(session)
+
+

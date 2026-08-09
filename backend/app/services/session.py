@@ -4,6 +4,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
+from app.ai.schemas import (
+    AnswerEvaluation,
+    CandidateProfile,
+    CurrentQuestion,
+    InterviewPlan,
+)
 from app.schemas.interview import Candidate, ConversationMessage
 
 
@@ -32,6 +38,13 @@ class InterviewSession:
     question_count: int = 0
     planned_days: list[int] = field(default_factory=list)
     state: SessionState = SessionState.ACTIVE
+    candidate_profile: CandidateProfile | None = None
+    interview_plan: InterviewPlan | None = None
+    current_question: CurrentQuestion | None = None
+    evaluations: list[AnswerEvaluation] = field(default_factory=list)
+    used_curriculum_days: list[int] = field(default_factory=list)
+    plan_cursor: int = 0
+    consecutive_follow_ups: int = 0
 
     def append_message(self, role: Literal["interviewer", "candidate"], content: str) -> None:
         self.conversation.append(ConversationMessage(role=role, content=content))

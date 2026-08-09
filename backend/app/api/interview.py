@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from app.ai.llm import LLMError, get_llm_service
+from app.config import get_settings
 from app.interview.engine import continue_interview, plan_interview_days, start_interview
 from app.schemas.interview import InterviewRequest, InterviewResponse
 from app.services.candidate import CandidateValidationError, validate_candidate
@@ -56,4 +58,12 @@ def _handle_continue(request: InterviewRequest) -> InterviewResponse:
     if session.state.value == "completed":
         raise HTTPException(status_code=400, detail="Interview is already completed.")
 
-    return continue_interview(session, continue_request.message)
+    settings = get_settings()
+    llm = None
+    if settings.ai_enabled:
+        try:
+            llm = get_llm_service(settings)
+        except LLMError:
+            llm = None
+
+    return continue_interview(session, continue_request.message, llm=llm)

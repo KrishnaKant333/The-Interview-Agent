@@ -5,6 +5,32 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 
+from pathlib import Path
+
+def _load_env_file() -> None:
+    paths = [
+        Path(__file__).resolve().parent.parent / ".env",
+        Path(".env").resolve(),
+    ]
+    for p in paths:
+        if p.exists():
+            try:
+                from dotenv import load_dotenv
+                load_dotenv(p, override=False)
+            except ImportError:
+                pass
+            for line in p.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    if k not in os.environ:
+                        os.environ[k] = v.strip()
+            break
+
+_load_env_file()
+
+
 def _env_bool(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None:

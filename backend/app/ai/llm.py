@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -29,6 +29,20 @@ class LLMService(ABC):
         """Generate and validate structured output against a Pydantic schema."""
 
 
+def _clean_schema_for_gemini(data: Any) -> Any:
+    """Recursively remove keys unsupported by Gemini REST API schema validation."""
+    if isinstance(data, dict):
+        cleaned = {}
+        for key, value in data.items():
+            if key in ("additionalProperties", "additional_properties"):
+                continue
+            cleaned[key] = _clean_schema_for_gemini(value)
+        return cleaned
+    elif isinstance(data, list):
+        return [_clean_schema_for_gemini(item) for item in data]
+    return data
+
+
 class GeminiLLMService(LLMService):
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
@@ -49,9 +63,11 @@ class GeminiLLMService(LLMService):
             raise LLMError("google-genai package is not installed.") from exc
 
         client = genai.Client(api_key=self._settings.gemini_api_key)
+        cleaned_schema = _clean_schema_for_gemini(schema.model_json_schema())
+
         config_kwargs: dict = {
             "response_mime_type": "application/json",
-            "response_schema": schema,
+            "response_schema": cleaned_schema,
             "temperature": 0.4,
         }
         if system_instruction:
@@ -67,17 +83,23 @@ class GeminiLLMService(LLMService):
             logger.exception("Gemini API call failed")
             raise LLMError("Gemini API call failed.") from exc
 
-        parsed = response.parsed
-        if parsed is None:
-            raise LLMError("Gemini returned no parsed structured output.")
+        parsed = getattr(response, "parsed", None)
+        if parsed is not None:
+            if isinstance(parsed, schema):
+                return parsed
+            try:
+                return schema.model_validate(parsed)
+            except ValidationError as exc:
+                logger.warning("Parsed response validation failed: %s", exc)
 
-        if isinstance(parsed, schema):
-            return parsed
+        text = getattr(response, "text", None)
+        if text:
+            try:
+                return schema.model_validate_json(text)
+            except ValidationError as exc:
+                raise LLMError("Gemini structured output failed validation.") from exc
 
-        try:
-            return schema.model_validate(parsed)
-        except ValidationError as exc:
-            raise LLMError("Gemini structured output failed validation.") from exc
+        raise LLMError("Gemini returned no valid structured output.")
 
 
 class FakeLLMService(LLMService):
