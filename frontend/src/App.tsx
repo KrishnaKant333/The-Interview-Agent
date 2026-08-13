@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { Analytics } from "@vercel/analytics/react";
 import { InterviewProvider } from "./context/InterviewContext";
 import MainLayout from "./layouts/MainLayout";
 import Candidates from "./pages/Candidates";
@@ -22,6 +23,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      <Analytics />
     </InterviewProvider>
   );
 }
